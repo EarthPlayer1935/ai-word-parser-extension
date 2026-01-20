@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "AI 构词解析助手",
+  "version": "2.0",
+  "description": "基于 LLM 的单词构词深度解析",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["style.css"]
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+/* 构字小图标 */
+#etymology-icon-btn {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  background-color: #4CAF50; /* 绿色背景 */
+  color: white;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 24px;
+  font-size: 14px;
+  font-family: sans-serif;
+  cursor: pointer;
+  z-index: 999999;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  user-select: none;
+  font-weight: bold;
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* 悬浮弹窗 */
+#etymology-popup-card {
+  position: absolute;
+  min-width: 200px;
+  max-width: 300px;
+  background-color: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 1000000;
+  font-family: sans-serif;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.5;
+  display: none; /* 默认隐藏 */
+}
+
+/* 弹窗内部样式 */
+.ety-word { font-weight: bold; font-size: 16px; color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 5px; }
+.ety-part { margin-bottom: 4px; }
+.ety-label { color: #888; font-size: 12px; margin-right: 5px; }
+.ety-val { color: #d35400; font-weight: 500; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* style.css - 添加加载动画样式 */
+.ety-loader {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #3498db; /* 蓝色旋转头 */
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
