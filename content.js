@@ -1,4 +1,4 @@
-// content.js - 终极完美版 (修复未悬浮无法清除的问题)
+// content.js - 支持双击与滑动选词 (Ultimate Edition)
 
 // 全局变量
 let currentIcon = null;
@@ -16,17 +16,38 @@ function clearElements() {
     }
 }
 
-// 2. 核心监听逻辑
-document.addEventListener('dblclick', function(e) {
-    const selection = window.getSelection();
-    const selectedText = selection.toString().trim();
-
-    // 排除非英文单词
-    if (!selectedText || selectedText.includes(' ') || !/^[a-zA-Z]+$/.test(selectedText)) {
+// 2. 核心监听逻辑：使用 mouseup 统一处理“双击”和“划词”
+document.addEventListener('mouseup', function(e) {
+    // 如果点击的是插件自己的图标或弹窗，直接忽略，不处理
+    if ((currentIcon && currentIcon.contains(e.target)) || 
+        (currentPopup && currentPopup.contains(e.target))) {
         return;
     }
 
+    // 给一点点延时，确保浏览器完成了选区的构建
+    setTimeout(() => {
+        handleSelection();
+    }, 10);
+});
+
+// 处理选区的具体逻辑
+function handleSelection() {
+    const selection = window.getSelection();
+    const selectedText = selection.toString().trim();
+
+    // 校验：必须是纯英文，且不能为空
+    // 如果你想支持词组（比如 "look for"），可以去掉 !selectedText.includes(' ') 这个条件
+    if (!selectedText || !/^[a-zA-Z\s]+$/.test(selectedText)) {
+        return;
+    }
+
+    // 如果选中的是句子（比如超过3个单词），可能不适合做词源解析，这里做一个简单的长度限制过滤
+    // (可选) 如果你只想查单词，不想查长句子，保留下面这行：
+    if (selectedText.split(' ').length > 3) return; 
+
     // --- 步骤A：先算坐标 (防销毁) ---
+    // 获取选区中最后一个Range对象
+    if (selection.rangeCount === 0) return;
     const range = selection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
 
@@ -35,6 +56,7 @@ document.addEventListener('dblclick', function(e) {
     const savedLeft = rect.left + window.scrollX;
     
     // --- 步骤B：清理旧界面 ---
+    // 注意：这里的清理动作，视觉上会让旧图标消失，新图标出现。
     clearElements();
 
     // --- 步骤C：创建图标 ---
@@ -51,7 +73,6 @@ document.addEventListener('dblclick', function(e) {
 
     // --- 步骤D：悬浮事件 ---
     icon.addEventListener('mouseenter', () => {
-        // 把算好的坐标直接打包传给显示函数
         const positionData = {
             top: savedTop,
             left: savedLeft
@@ -62,7 +83,7 @@ document.addEventListener('dblclick', function(e) {
         // 发送消息给后台
         chrome.runtime.sendMessage({ action: "analyzeWord", word: selectedText }, (response) => {
             if (chrome.runtime.lastError) {
-                console.error(chrome.runtime.lastError);
+                console.warn("连接断开或后台报错:", chrome.runtime.lastError);
                 return;
             }
             
@@ -81,29 +102,24 @@ document.addEventListener('dblclick', function(e) {
            } 
         }, 500);
     });
-});
+}
 
-// --- 关键修复在这里 ---
-// 点击页面任意位置时的清除逻辑
+// 3. 点击页面空白处清除 (保留之前的修复逻辑)
 document.addEventListener('mousedown', function(e) {
-    // 只有当图标存在时才需要判断
     if (currentIcon) {
-        // 判断1: 点击的是否是图标本身？
+        // 判断是否点击了图标或弹窗
         const isClickingIcon = (e.target === currentIcon);
-        
-        // 判断2: 点击的是否是弹窗内部？(如果弹窗还没生成，就默认为 false)
         const isClickingPopup = (currentPopup && currentPopup.contains(e.target));
 
-        // 如果既不是点图标，也不是点弹窗，那就清除！
         if (!isClickingIcon && !isClickingPopup) {
-            // 稍微延时一点点，避免和双击冲突（其实不延时也可以，200ms体验比较好）
+            // 点击别处时，清除图标
+            // 使用 setTimeout 是为了防止和 mouseup 冲突 (防止刚点下去就清了，mouseup 又没触发)
             setTimeout(clearElements, 100);
         }
     }
 });
-// --------------------
 
-// --- UI 显示函数 ---
+// --- UI 显示函数 (保持不变) ---
 
 function showPopupLoading(word, pos) {
     if (!currentPopup) {
@@ -115,7 +131,6 @@ function showPopupLoading(word, pos) {
         document.body.appendChild(currentPopup);
     }
 
-    // 加载动画 HTML
     currentPopup.innerHTML = `
         <div class="ety-word">${word}</div>
         <div style="padding: 15px 0; display: flex; align-items: center; justify-content: center; flex-direction: column;">
@@ -125,8 +140,6 @@ function showPopupLoading(word, pos) {
     `;
 
     currentPopup.style.display = 'block';
-    
-    // 使用绝对坐标
     currentPopup.style.top = (pos.top + 35) + 'px';
     currentPopup.style.left = pos.left + 'px';
 }
