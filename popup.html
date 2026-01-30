@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <h3>构词解析查询</h3>
+        <div class="search-box">
+            <input type="text" id="word-input" placeholder="输入单词 (例如: teleport)" autofocus>
+            <button id="search-btn">查询</button>
+        </div>
+
+        <div id="result-area" class="result-hidden">
+            <div id="loading" style="display:none;">
+                <div class="spinner"></div>
+                <p>AI 正在分析中...</p>
+            </div>
+            
+            <div id="content" style="display:none;">
+                <div class="word-title" id="res-word"></div>
+                <div class="part-row"><span class="label">前缀:</span> <span class="val" id="res-prefix"></span></div>
+                <div class="part-row"><span class="label">词根:</span> <span class="val" id="res-root"></span></div>
+                <div class="part-row"><span class="label">后缀:</span> <span class="val" id="res-suffix"></span></div>
+                <div class="desc" id="res-desc"></div>
+            </div>
+
+            <div id="error" style="display:none; color: red;"></div>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

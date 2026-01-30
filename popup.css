@@ -1,0 +1,106 @@
+body {
+    width: 320px; /* 弹窗的固定宽度 */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 15px;
+    background-color: #f9f9f9;
+}
+
+h3 {
+    margin: 0 0 15px 0;
+    font-size: 16px;
+    color: #333;
+    text-align: center;
+}
+
+.search-box {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+input {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    outline: none;
+}
+
+input:focus {
+    border-color: #4CAF50;
+}
+
+button {
+    padding: 8px 15px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #45a049;
+}
+
+/* 结果区域样式 */
+.result-hidden {
+    display: none;
+}
+
+.word-title {
+    font-size: 18px;
+    font-weight: bold;
+    color: #2c3e50;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+}
+
+.part-row {
+    margin-bottom: 6px;
+    font-size: 14px;
+}
+
+.label {
+    color: #888;
+    margin-right: 5px;
+    font-size: 12px;
+}
+
+.val {
+    color: #d35400;
+    font-weight: 500;
+}
+
+.desc {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed #eee;
+    font-size: 13px;
+    color: #555;
+    line-height: 1.5;
+}
+
+/* 加载动画 */
+.spinner {
+    width: 20px;
+    height: 20px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 10px auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+#loading {
+    text-align: center;
+    font-size: 12px;
+    color: #666;
+}

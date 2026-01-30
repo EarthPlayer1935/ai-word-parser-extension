@@ -1,10 +1,16 @@
 {
   "manifest_version": 3,
   "name": "AI 构词解析助手",
-  "version": "2.0",
+  "version": "2.2", 
   "description": "基于 LLM 的单词构词深度解析",
   "permissions": ["activeTab", "storage"],
   "host_permissions": ["<all_urls>"],
+  
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "点击查询构词"
+  },
+
   "background": {
     "service_worker": "background.js"
   },
