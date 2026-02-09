@@ -1,0 +1,28 @@
+name: Package Extension # 流水线的名字
+
+# 触发条件：当你 push (推送) 代码到 main 分支时触发
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # 在 GitHub 的服务器（Ubuntu系统）上运行
+
+    steps:
+    # 1. 把你的代码从仓库里拉取下来
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2. 运行打包命令 (把除了 .git 和 .github 以外的文件压缩成 zip)
+    - name: Zip the extension
+      run: zip -r my-extension.zip . -x ".git/*" ".github/*"
+
+    # 3. 把打好的包上传到 GitHub 页面供你下载
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: packed-extension
+        path: my-extension.zip
