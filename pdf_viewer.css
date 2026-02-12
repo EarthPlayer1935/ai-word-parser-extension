@@ -1,0 +1,62 @@
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #525659;
+    /* Chrome PDF viewer background color */
+    font-family: sans-serif;
+}
+
+#viewer-container {
+    width: 100%;
+    height: 100vh;
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+}
+
+#pdf-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+}
+
+.pdf-page {
+    position: relative;
+    margin-bottom: 20px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    background-color: white;
+}
+
+/* Canvas styling */
+.pdf-page canvas {
+    display: block;
+}
+
+/* Text Layer needed for selection */
+.textLayer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+    line-height: 1.0;
+    opacity: 1;
+    /* Changed from 0.2 to 1 for clear highlights */
+    mix-blend-mode: multiply;
+    /* Optional: helps with blending */
+}
+
+.textLayer>span {
+    color: transparent;
+    position: absolute;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+}
+
+/* Selection color */
+::selection {
+    background: rgba(0, 0, 255, 0.3);
+}

@@ -20,5 +20,11 @@
       "js": ["content.js"],
       "css": ["style.css"]
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["pdf_viewer.html", "pdf_viewer.js", "pdf_viewer.css", "lib/*.mjs"],
+      "matches": ["<all_urls>"]
+    }
   ]
 }

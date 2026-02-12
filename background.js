@@ -14,12 +14,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function handleWordAnalysis(word, sendResponse) {
     const lowerWord = word.toLowerCase().trim();
-    const cacheKey = `cache_ety_${lowerWord}`;
+    const cacheKey = `cache_ety_v2_${lowerWord}`;
 
     try {
         // 1. 检查缓存
         const cachedResult = await chrome.storage.local.get(cacheKey);
-        
+
         if (cachedResult[cacheKey]) {
             console.log(`[Cache Hit] 从缓存中读取了: ${word}`);
             sendResponse({ success: true, data: cachedResult[cacheKey] });
@@ -44,9 +44,9 @@ async function handleWordAnalysis(word, sendResponse) {
 async function fetchEtymology(word) {
     // 关键修改：将模型版本从 1.5 改为 2.5
     // 注意：如果是 2026 年，gemini-2.5-flash 是最新的稳定版
-    const modelVersion = "gemini-2.5-flash"; 
+    const modelVersion = "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelVersion}:generateContent?key=${CONFIG.API_KEY}`;
-    
+
     const prompt = `
         你是一个专业的词源学家。请分析英语单词 "${word}"。
         请务必只返回纯 JSON 格式数据，不要包含 Markdown 格式。
@@ -55,7 +55,7 @@ async function fetchEtymology(word) {
             "root": "词根及含义 (英文)",
             "prefix": "前缀及含义 (英文)，无则填 None",
             "suffix": "后缀及含义 (英文)，无则填 None",
-            "desc": "用中文简要解释该词如何由词根词缀组合而来 (30字以内)"
+            "desc": "根据前缀、后缀和词根，总结一下单词的意思 (30字以内)"
         }
     `;
 
