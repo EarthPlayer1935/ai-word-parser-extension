@@ -114,7 +114,8 @@ function createEtymologyIcon(rect, text, autoHide = false) {
         cancelHideIcon(); // Don't hide if we enter the icon
 
         const positionData = {
-            top: savedTop,
+            top: savedTop, // This is rect.bottom (icon position)
+            popupTop: rect.top + window.scrollY, // NEW: Top of the word for popup
             left: savedLeft
         };
 
@@ -224,8 +225,19 @@ function showPopupLoading(word, pos) {
     `;
 
     currentPopup.style.display = 'block';
-    currentPopup.style.top = (pos.top + 35) + 'px';
+    // Position ABOVE the word
+    // pos.popupTop is the top of the selected word/range.
+    // We move up by a small margin (e.g. 5px).
+    // We use transform: translateY(-100%) to shift the popup's own height up.
+
+    // Fallback if popupTop isn't provided (e.g. from existing calls? we should fix them) 
+    // But for safety, check:
+    const targetTop = (pos.popupTop !== undefined) ? pos.popupTop : pos.top;
+
+    currentPopup.style.top = (targetTop - 5) + 'px';
     currentPopup.style.left = pos.left + 'px';
+    // Add a class or inline style for the transform
+    currentPopup.style.transform = 'translateY(-100%)';
 }
 
 function updatePopupContent(word, data) {
@@ -387,29 +399,107 @@ if (CSS.highlights) {
 
         // --- Valid Text Detected ---
 
-        const sentenceRange = getSentenceRange(range);
+        // --- Smart Interaction & Highlighting Logic ---
 
-        const wordHighlight = new Highlight(wordData.range);
-        const sentenceHighlight = new Highlight(sentenceRange);
-
-        CSS.highlights.set("word-highlight", wordHighlight);
-        CSS.highlights.set("sentence-highlight", sentenceHighlight);
-
-        lastHighlightRange = wordData.range;
-        lastHoveredText = wordData.text;
-
-        // --- Smart Interaction ---
         const interactiveParent = getInteractiveParent(range.startContainer);
+
         if (interactiveParent) {
-            // Hovered a link/button -> Show icon, enable AutoHide and cancel hide timer
-            if (hoverRect) {
-                cancelHideIcon();
-                createEtymologyIcon(hoverRect, wordData.text, true);
-            }
+            // 1. Interactive Element (Link/Button) -> REMOVE ALL EFFECTS
+            CSS.highlights.clear();
+            lastHighlightRange = null;
+            // No icon, no highlights. Just return.
+            return;
         } else {
-            // Normal Text.
-            // If we just left a Link, we should hide the icon (after delay).
-            // If we are just browsing normal text, this call is redundant but harmless (checks timer).
+            // 2. Normal Text -> Apply Highlights
+
+            // Helper to check if we should use "clean" style (no background color)
+            // This is for dark mode or complex backgrounds (like Spotify lyrics)
+            function shouldUseCleanStyle(node) {
+                if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+
+                const style = window.getComputedStyle(node);
+
+                // Check 1: Text Color (Light text usually implies dark background)
+                const color = style.color || "";
+                const colorMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                if (colorMatch) {
+                    const r = parseInt(colorMatch[1]);
+                    const g = parseInt(colorMatch[2]);
+                    const b = parseInt(colorMatch[3]);
+                    // Brightness > 200 (out of 255) considered "Light"
+                    // If text is white/light, we use clean style.
+                    if ((r * 0.299 + g * 0.587 + b * 0.114) > 200) {
+                        return true;
+                    }
+                }
+
+                // Check 2: Background Color
+                // We check up to 4 levels to find a background
+                let curr = node;
+                for (let i = 0; i < 4; i++) {
+                    if (!curr) break;
+
+                    const bgStyle = window.getComputedStyle(curr);
+                    const bgColor = bgStyle.backgroundColor;
+
+                    // Regex to parse rgba including alpha
+                    const bgMatch = bgColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d\.]+))?\)/);
+                    if (bgMatch) {
+                        const r = parseInt(bgMatch[1]);
+                        const g = parseInt(bgMatch[2]);
+                        const b = parseInt(bgMatch[3]);
+                        const a = bgMatch[4] !== undefined ? parseFloat(bgMatch[4]) : 1;
+
+                        if (a > 0.1) { // If visible
+                            // If significantly dark/colored (< 240) -> Use Clean Style
+                            if (r < 240 || g < 240 || b < 240) {
+                                return true;
+                            }
+                            // If it is Light (>= 240) AND Opaque (> 0.9) -> Use Normal Style
+                            if (a > 0.9) {
+                                return false;
+                            }
+                        }
+                    }
+
+                    // Background Image -> Assume Complex -> Clean Style
+                    if (bgStyle.backgroundImage && bgStyle.backgroundImage !== 'none') {
+                        return true;
+                    }
+
+                    curr = curr.parentElement;
+                }
+
+                return false;
+            }
+
+            const sentenceRange = getSentenceRange(range);
+            const wordHighlight = new Highlight(wordData.range);
+            const sentenceHighlight = new Highlight(sentenceRange);
+
+            const element = range.startContainer.parentElement;
+
+            if (shouldUseCleanStyle(element)) {
+                // Apply Clean Style (Underline only, no background)
+                CSS.highlights.set("word-highlight-clean", wordHighlight);
+                CSS.highlights.set("sentence-highlight-clean", sentenceHighlight);
+                // Ensure normal highlights are removed
+                CSS.highlights.delete("word-highlight");
+                CSS.highlights.delete("sentence-highlight");
+            } else {
+                // Apply Normal Style
+                CSS.highlights.set("word-highlight", wordHighlight);
+                CSS.highlights.set("sentence-highlight", sentenceHighlight);
+                // Ensure clean highlights are removed
+                CSS.highlights.delete("word-highlight-clean");
+                CSS.highlights.delete("sentence-highlight-clean");
+            }
+
+            lastHighlightRange = wordData.range;
+            lastHoveredText = wordData.text;
+
+            // If we are browsing normal text, we might want to auto-hide the icon 
+            // if we moved away from a link previously.
             scheduleHideIcon();
         }
     }
@@ -431,7 +521,7 @@ if (CSS.highlights) {
             const rect = lastHighlightRange.getBoundingClientRect();
             const savedTop = rect.bottom + window.scrollY;
             const savedLeft = rect.left + window.scrollX;
-            const pos = { top: savedTop, left: savedLeft };
+            const pos = { top: savedTop, popupTop: rect.top + window.scrollY, left: savedLeft };
 
             showPopupLoading(lastHoveredText, pos);
 

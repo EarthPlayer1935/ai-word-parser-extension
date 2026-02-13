@@ -66,12 +66,12 @@
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(5px);
+    transform: translateY(-90%);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(-100%);
   }
 }
 
@@ -100,16 +100,28 @@
 ::highlight(sentence-highlight) {
   background-color: #e0f2f1;
   /* 浅青色背景 (句子) */
-  color: transparent;
-  /* Changed from inherit to transparent to avoid ghosting */
+  color: inherit;
 }
 
 ::highlight(word-highlight) {
   background-color: #69f0ae;
   /* 较深的青绿色 (单词) */
-  color: transparent;
-  /* Changed from #000 to transparent to avoid "ghosting" (double text) issue */
+  color: inherit;
   text-decoration: underline;
   text-decoration-color: #00695c;
   cursor: pointer;
+}
+
+::highlight(word-highlight-clean) {
+  background-color: transparent;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
+  cursor: pointer;
+}
+
+::highlight(sentence-highlight-clean) {
+  background-color: transparent;
+  color: inherit;
 }
