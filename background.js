@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function handleWordAnalysis(word, sendResponse) {
     const lowerWord = word.toLowerCase().trim();
-    const cacheKey = `cache_ety_v2_${lowerWord}`;
+    const cacheKey = `cache_ety_v3_${lowerWord}`;
 
     try {
         // 1. 检查缓存
@@ -55,7 +55,8 @@ async function fetchEtymology(word) {
             "root": "词根及含义 (英文)",
             "prefix": "前缀及含义 (英文)，无则填 None",
             "suffix": "后缀及含义 (英文)，无则填 None",
-            "desc": "根据前缀、后缀和词根，总结一下单词的意思 (30字以内)"
+            "translation": "单词的简短中文释义 (10字以内)",
+            "desc": "根据前缀、后缀和词根，总结一下单词的意思 (简体中文，30字以内)"
         }
     `;
 
@@ -65,6 +66,8 @@ async function fetchEtymology(word) {
         body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }]
         })
+    }).catch(err => {
+        throw new Error("网络错误 (Network Request Failed): 请检查您的网络连接或 VPN (Please check your connection or VPN).");
     });
 
     const result = await response.json();

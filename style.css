@@ -1,16 +1,16 @@
 /* 构字小图标 */
 #etymology-icon-btn {
   position: absolute;
-  width: 24px;
-  height: 24px;
-  background-color: #4CAF50;
-  /* 绿色背景 */
-  color: white;
-  border-radius: 50%;
-  text-align: center;
-  line-height: 24px;
-  font-size: 14px;
-  font-family: sans-serif;
+  width: 22px;
+  height: 22px;
+  /* background-color: #4CAF50; Removed background */
+  /* color: white; Removed text color */
+  border-radius: 5px;
+  /* Slight radius for the image if needed, or remove */
+  /* text-align: center; */
+  /* line-height: 24px; */
+  /* font-size: 14px; */
+  /* font-family: sans-serif; */
   cursor: pointer;
   z-index: 999999;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
@@ -24,6 +24,10 @@
   position: absolute;
   min-width: 200px;
   max-width: 300px;
+  max-height: 400px;
+  /* Limit height */
+  overflow-y: auto;
+  /* Allow scrolling */
   background-color: #fff;
   border: 1px solid #ddd;
   border-radius: 8px;
@@ -36,6 +40,11 @@
   line-height: 1.5;
   display: none;
   /* 默认隐藏 */
+  opacity: 1;
+}
+
+#etymology-popup-card.show {
+  opacity: 1;
 }
 
 /* 弹窗内部样式 */
@@ -46,6 +55,12 @@
   border-bottom: 1px solid #eee;
   padding-bottom: 5px;
   margin-bottom: 5px;
+  position: sticky;
+  /* Make sticky */
+  top: 0;
+  background-color: #fff;
+  /* Ensure background covers content */
+  z-index: 10;
 }
 
 .ety-part {

@@ -1,30 +1,57 @@
 {
   "manifest_version": 3,
-  "name": "AI 构词解析助手",
-  "version": "2.2", 
+  "name": "AI 构词解析",
+  "version": "2.2",
   "description": "基于 LLM 的单词构词深度解析",
-  "permissions": ["activeTab", "storage"],
-  "host_permissions": ["<all_urls>"],
-  
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "icons": {
+    "16": "images/icon16.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "点击查询构词"
+    "default_title": "点击查询构词",
+    "default_icon": {
+      "16": "images/icon16.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
+    }
   },
-
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "css": ["style.css"]
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "style.css"
+      ]
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["pdf_viewer.html", "pdf_viewer.js", "pdf_viewer.css", "lib/*.mjs"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "pdf_viewer.html",
+        "pdf_viewer.js",
+        "pdf_viewer.css",
+        "lib/*.mjs",
+        "images/*.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

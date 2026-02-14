@@ -3,12 +3,21 @@
 // 全局变量
 let currentIcon = null;
 let currentPopup = null;
+let currentPopupWord = null; // Track the word associated with the current popup
 let lastIconWord = null; // Track the word associated with the current icon
 let hideIconTimer = null; // Timer for auto-hiding the icon
 let timeoutPopup = null; // Timer for auto-hiding the popup
 
+let clearElementsTimer = null; // Timer for mousedown cleanup
+let activeAnchorRect = null; // The rect of the word that triggered the popup
+let distanceTrackHandler = null; // The bound function for mousemove tracking
+
 // 1. 清除界面元素
 function clearElements() {
+    if (clearElementsTimer) {
+        clearTimeout(clearElementsTimer);
+        clearElementsTimer = null;
+    }
     if (currentIcon) {
         currentIcon.remove();
         currentIcon = null;
@@ -17,9 +26,57 @@ function clearElements() {
     if (currentPopup) {
         currentPopup.remove();
         currentPopup = null;
+        currentPopupWord = null;
     }
     cancelHideIcon(); // Clear any pending hide timers
     if (timeoutPopup) clearTimeout(timeoutPopup);
+}
+
+// 1.1 Distance Opacity Logic
+function getDistanceToRect(x, y, rect) {
+    // Calculate distance from point (x,y) to the rectangle
+    // If point is inside, distance is 0.
+    const dx = Math.max(rect.left - x, 0, x - rect.right);
+    const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function startDistanceTracking(rect) {
+    activeAnchorRect = rect;
+
+    if (distanceTrackHandler) {
+        document.removeEventListener('mousemove', distanceTrackHandler);
+    }
+
+    distanceTrackHandler = (e) => {
+        if (!currentPopup || !activeAnchorRect) return;
+
+        // If mouse is inside Popup, Opacity = 1
+        const popupRect = currentPopup.getBoundingClientRect();
+        if (e.clientX >= popupRect.left && e.clientX <= popupRect.right &&
+            e.clientY >= popupRect.top && e.clientY <= popupRect.bottom) {
+            currentPopup.style.opacity = 1;
+            return;
+        }
+
+        // Calculate distance to the WORD (Anchor)
+        const d = getDistanceToRect(e.clientX, e.clientY, activeAnchorRect);
+
+        // Max distance 500px (User requested higher sensitivity range, 500px)
+        const MAX_DIST = 500;
+        const opacity = Math.max(0, 1 - d / MAX_DIST);
+
+        currentPopup.style.opacity = opacity;
+
+        // Optional: If completely invisible, maybe allow clicks through?
+        // But user just said "disappear completely", not "gone". 
+        // Existing logic handles clicks elsewhere to close it.
+    };
+
+    document.addEventListener('mousemove', distanceTrackHandler);
+
+    // Close on Scroll
+    window.addEventListener('scroll', clearElements, { once: true });
 }
 
 // Timer Logic for Auto-Hide
@@ -27,6 +84,10 @@ function scheduleHideIcon() {
     // REFINED: Don't resetting the timer if it's already running.
     // This allows the grace period to expire even if mouse keeps moving on non-interactive areas.
     if (hideIconTimer) return;
+
+    // If popup is open, we rely on Distance Opacity, NOT timer.
+    // So if currentPopup exists, do NOT schedule hide.
+    if (currentPopup) return;
 
     hideIconTimer = setTimeout(() => {
         // Only hide if:
@@ -41,6 +102,13 @@ function scheduleHideIcon() {
             if (!iconHovered && !popupHovered) {
                 clearElements();
             }
+        } else if (!currentIcon && currentPopup) {
+            // Case: Popup opened via click (no icon).
+            // With Distance Logic, we don't auto-hide by timer if the popup is controlled by distance.
+            // But if we want to be safe, we can leave this EMPTY and rely on Distance Opacity.
+            // Or only if distance logic isn't active? 
+            // In our design, if popup is open, distance logic IS active.
+            // So we do NOTHING here.
         }
         hideIconTimer = null; // Timer finished
     }, 300); // 300ms delay
@@ -56,6 +124,7 @@ function cancelHideIcon() {
 // 2. 核心监听逻辑：使用 mouseup 统一处理“双击”和“划词”
 document.addEventListener('mouseup', function (e) {
     // 如果点击的是插件自己的图标或弹窗，直接忽略，不处理
+    if (!chrome.runtime?.id) return; // Prevent Execution if extension is invalidated
     if ((currentIcon && currentIcon.contains(e.target)) ||
         (currentPopup && currentPopup.contains(e.target))) {
         return;
@@ -96,9 +165,10 @@ function createEtymologyIcon(rect, text, autoHide = false) {
     clearElements();
 
     // --- 步骤C：创建图标 ---
-    const icon = document.createElement('div');
+    const icon = document.createElement('img');
+    icon.src = chrome.runtime.getURL('images/icon48.png'); // Use the 48px logo
     icon.id = 'etymology-icon-btn';
-    icon.innerText = '构';
+    // icon.innerText = '构'; // Removed text
     icon.dataset.isAutoHide = String(autoHide); // Store the mode
 
     // 使用算好的绝对位置
@@ -111,13 +181,21 @@ function createEtymologyIcon(rect, text, autoHide = false) {
 
     // --- 步骤D：悬浮事件 (图标本身) ---
     icon.addEventListener('mouseenter', () => {
+        if (!chrome.runtime?.id) return;
         cancelHideIcon(); // Don't hide if we enter the icon
 
+        // NOTE: We don't have the exact rect of the word here easily unless we passed it or stored it.
+        // rect argument IS available in this closure!
+
         const positionData = {
-            top: savedTop, // This is rect.bottom (icon position)
-            popupTop: rect.top + window.scrollY, // NEW: Top of the word for popup
-            left: savedLeft
+            top: savedTop,
+            popupTop: rect.top + window.scrollY,
+            left: savedLeft,
+            rect: rect // Pass the rect for distance tracking
         };
+
+        // Ensure we clear previous timers if we are re-entering
+        clearElementsTimer = null; // Just in case
 
         showPopupLoading(text, positionData);
 
@@ -174,6 +252,7 @@ function handleSelection() {
 
 // 3. 点击页面空白处清除 (保留之前的修复逻辑)
 document.addEventListener('mousedown', function (e) {
+    if (!chrome.runtime?.id) return;
     if (currentIcon) {
         // 判断是否点击了图标或弹窗
         const isClickingIcon = (e.target === currentIcon);
@@ -181,7 +260,7 @@ document.addEventListener('mousedown', function (e) {
 
         if (!isClickingIcon && !isClickingPopup) {
             // 点击别处时，清除图标
-            setTimeout(clearElements, 100);
+            clearElementsTimer = setTimeout(clearElements, 100);
         }
     }
 });
@@ -189,27 +268,17 @@ document.addEventListener('mousedown', function (e) {
 // --- UI 显示函数 (保持不变) ---
 
 function showPopupLoading(word, pos) {
+    currentPopupWord = word;
     if (!currentPopup) {
         currentPopup = document.createElement('div');
         currentPopup.id = 'etymology-popup-card';
         // Keep popup open if hovered, hide if left
-        currentPopup.addEventListener('mouseenter', cancelHideIcon);
-        currentPopup.addEventListener('mouseleave', () => {
-            // Auto-close with delay to allow moving back
-            // FIX: Reduced delay from 300ms to 100ms to make the popup disappear faster when mouse leaves
-            timeoutPopup = setTimeout(() => {
-                const iconHovered = currentIcon && currentIcon.matches(':hover');
-                const popupHovered = currentPopup && currentPopup.matches(':hover');
-
-                if (!iconHovered && !popupHovered) {
-                    currentPopup.style.display = 'none';
-                    // Also clear icon if it was auto-hide
-                    if (currentIcon && currentIcon.dataset.isAutoHide === 'true') {
-                        clearElements();
-                    }
-                }
-            }, 100); // Reduced delay for responsiveness
+        currentPopup.addEventListener('mouseenter', () => {
+            cancelHideIcon();
         });
+
+        // REMOVED mouseleave listener: We rely on Distance Opacity now.
+
         document.body.appendChild(currentPopup);
     }
 
@@ -225,26 +294,53 @@ function showPopupLoading(word, pos) {
     `;
 
     currentPopup.style.display = 'block';
+    // Force reflow to enable transition
+    requestAnimationFrame(() => {
+        if (currentPopup) currentPopup.classList.add('show');
+    });
     // Position ABOVE the word
     // pos.popupTop is the top of the selected word/range.
     // We move up by a small margin (e.g. 5px).
     // We use transform: translateY(-100%) to shift the popup's own height up.
 
+
     // Fallback if popupTop isn't provided (e.g. from existing calls? we should fix them) 
     // But for safety, check:
     const targetTop = (pos.popupTop !== undefined) ? pos.popupTop : pos.top;
 
-    currentPopup.style.top = (targetTop - 5) + 'px';
-    currentPopup.style.left = pos.left + 'px';
-    // Add a class or inline style for the transform
-    currentPopup.style.transform = 'translateY(-100%)';
+    // Check available space above the word
+    const spaceAbove = targetTop - window.scrollY;
+    // Assume popup height is around 250px (safe margin)
+    const renderBelow = spaceAbove < 250;
+
+    if (renderBelow) {
+        // Not enough space above, render BELOW
+        // pos.top is actually the bottom of the selection + scrollY
+        // We add a small margin (e.g. 10px)
+        currentPopup.style.top = (pos.top + 10) + 'px';
+        currentPopup.style.left = pos.left + 'px';
+        currentPopup.style.transform = 'none'; // Default (top-left aligned) growing downwards
+    } else {
+        // Render ABOVE (Standard)
+        // targetTop is the top of the selection + scrollY
+        // We subtract a small margin (e.g. 5px)
+        // And translate up by 100% so the bottom of the popup aligns with this point
+        currentPopup.style.top = (targetTop - 5) + 'px';
+        currentPopup.style.left = pos.left + 'px';
+        currentPopup.style.transform = 'translateY(-100%)';
+    }
+
+    // Start Distance Tracking
+    if (pos.rect) {
+        startDistanceTracking(pos.rect);
+    }
 }
 
 function updatePopupContent(word, data) {
     if (!currentPopup) return;
 
     currentPopup.innerHTML = `
-        <div class="ety-word">${word}</div>
+        <div class="ety-word">${word} <span style="font-weight:normal; font-size:14px; color:#666;">(${data.translation || '...'})</span></div>
         <div class="ety-part"><span class="ety-label">前缀:</span><span class="ety-val">${data.prefix}</span></div>
         <div class="ety-part"><span class="ety-label">词根:</span><span class="ety-val">${data.root}</span></div>
         <div class="ety-part"><span class="ety-label">后缀:</span><span class="ety-val">${data.suffix}</span></div>
@@ -269,10 +365,41 @@ if (CSS.highlights) {
 
     function getInteractiveParent(node) {
         let curr = node;
-        while (curr && curr !== document.body) {
-            if (curr.tagName === 'A' || curr.tagName === 'BUTTON') {
+        if (curr.nodeType === Node.TEXT_NODE) {
+            curr = curr.parentNode;
+        }
+
+        while (curr && curr !== document.body && curr !== document.documentElement) {
+            // 1. Tag checks
+            if (curr.tagName === 'A' || curr.tagName === 'BUTTON' || curr.tagName === 'SUMMARY' || curr.tagName === 'INPUT' || curr.tagName === 'TEXTAREA' || curr.tagName === 'SELECT') {
                 return curr;
             }
+
+            // 2. Role checks
+            if (curr.getAttribute) {
+                const role = curr.getAttribute('role');
+                if (['button', 'link', 'menuitem', 'tab', 'option', 'switch'].includes(role)) {
+                    return curr;
+                }
+            }
+
+            // 3. "More" link heuristic
+            // Check if text indicates an expansion link and has pointer cursor
+            const text = curr.innerText ? curr.innerText.trim().toLowerCase() : "";
+            if (text.length < 30) {
+                // Matches: "(more)", "more", "...more", "read more", "load more", "展开", "显示全部"
+                const morePatterns = /^(\(?more\)?|read more|… ?more|\.\.\. ?more|load more|展开|显示全部)$/;
+
+                if (morePatterns.test(text)) {
+                    try {
+                        const style = window.getComputedStyle(curr);
+                        if (style.cursor === 'pointer') {
+                            return curr;
+                        }
+                    } catch (e) { }
+                }
+            }
+
             curr = curr.parentNode;
         }
         return null;
@@ -340,6 +467,7 @@ if (CSS.highlights) {
     });
 
     function handleHover(e) {
+        if (!chrome.runtime?.id) return;
         // If clicking/drag/popups, abort
         if (e.buttons !== 0 || (currentPopup && currentPopup.contains(e.target)) || (currentIcon && currentIcon.contains(e.target))) {
             CSS.highlights.clear();
@@ -500,11 +628,17 @@ if (CSS.highlights) {
 
             // If we are browsing normal text, we might want to auto-hide the icon 
             // if we moved away from a link previously.
-            scheduleHideIcon();
+            // MODIFIED: If we are hovering the text that triggers the popup, KEEP IT.
+            if (currentPopup && currentPopupWord && wordData.text === currentPopupWord) {
+                cancelHideIcon();
+            } else {
+                scheduleHideIcon();
+            }
         }
     }
 
     document.addEventListener('click', (e) => {
+        if (!chrome.runtime?.id) return;
         if (e.button !== 0) return;
 
         if ((currentIcon && currentIcon.contains(e.target)) || (currentPopup && currentPopup.contains(e.target))) {
@@ -521,14 +655,16 @@ if (CSS.highlights) {
             const rect = lastHighlightRange.getBoundingClientRect();
             const savedTop = rect.bottom + window.scrollY;
             const savedLeft = rect.left + window.scrollX;
-            const pos = { top: savedTop, popupTop: rect.top + window.scrollY, left: savedLeft };
+            const pos = { top: savedTop, popupTop: rect.top + window.scrollY, left: savedLeft, rect: rect }; // Pass rect
 
-            showPopupLoading(lastHoveredText, pos);
+            const wordToSearch = lastHoveredText;
 
-            chrome.runtime.sendMessage({ action: "analyzeWord", word: lastHoveredText }, (response) => {
+            showPopupLoading(wordToSearch, pos);
+
+            chrome.runtime.sendMessage({ action: "analyzeWord", word: wordToSearch }, (response) => {
                 if (chrome.runtime.lastError) return;
                 if (response && response.success) {
-                    updatePopupContent(lastHoveredText, response.data);
+                    updatePopupContent(wordToSearch, response.data);
                 } else {
                     updatePopupError(response ? response.error : "未知错误");
                 }
