@@ -74,8 +74,26 @@
 }
 
 .ety-val {
-  color: #d35400;
+  color: #333;
   font-weight: 500;
+}
+
+.ety-prefix {
+  color: #4483ea;
+  /* Blue */
+  font-weight: bold;
+}
+
+.ety-root {
+  color: #f2bb06;
+  /* Yellow */
+  font-weight: bold;
+}
+
+.ety-suffix {
+  color: #e54430;
+  /* Red */
+  font-weight: bold;
 }
 
 @keyframes fadeIn {

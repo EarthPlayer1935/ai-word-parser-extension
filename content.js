@@ -253,13 +253,15 @@ function handleSelection() {
 // 3. 点击页面空白处清除 (保留之前的修复逻辑)
 document.addEventListener('mousedown', function (e) {
     if (!chrome.runtime?.id) return;
-    if (currentIcon) {
-        // 判断是否点击了图标或弹窗
-        const isClickingIcon = (e.target === currentIcon);
-        const isClickingPopup = (currentPopup && currentPopup.contains(e.target));
 
-        if (!isClickingIcon && !isClickingPopup) {
-            // 点击别处时，清除图标
+    // Check if clicking inside icon or popup
+    const isClickingIcon = (currentIcon && currentIcon.contains(e.target));
+    const isClickingPopup = (currentPopup && currentPopup.contains(e.target));
+
+    if (!isClickingIcon && !isClickingPopup) {
+        // If clicking elsewhere, clear elements
+        // (Only if they exist, otherwise clearElements is safe to call anyway)
+        if (currentIcon || currentPopup) {
             clearElementsTimer = setTimeout(clearElements, 100);
         }
     }
@@ -336,16 +338,162 @@ function showPopupLoading(word, pos) {
     }
 }
 
+// --- Helper: Clean etymology part strings ---
+// --- Helper: Clean etymology part strings ---
+function cleanEtyPart(text) {
+    if (!text) return "";
+    // Remove content in parenthesis e.g. " (not; opposite of)"
+    let clean = text.replace(/\s*\(.*?\)/g, "").trim();
+    if (clean.toLowerCase() === "none") return ""; // Filter out "None"
+    return clean;
+}
+
+
 function updatePopupContent(word, data) {
     if (!currentPopup) return;
 
+    // 1. Prepare Data
+    const rawPrefix = data.prefix || "";
+    const rawRoot = data.root || "";
+    const rawSuffix = data.suffix || "";
+
+    const cleanPrefix = cleanEtyPart(rawPrefix).replace(/-/g, ""); // Remove hyphens for word matching
+    const cleanRoot = cleanEtyPart(rawRoot).replace(/-/g, "");
+    const cleanSuffix = cleanEtyPart(rawSuffix).replace(/-/g, "");
+
+    // 2. Colorize Main Word (Title)
+    let coloredWordHMTL = word;
+
+    let remainingWord = word;
+    let prefixPart = "";
+    let rootPart = "";
+    let suffixPart = "";
+    let otherPart = "";
+
+    // A. Match Prefix (at Start)
+    if (cleanPrefix && remainingWord.toLowerCase().startsWith(cleanPrefix.toLowerCase())) {
+        prefixPart = remainingWord.substring(0, cleanPrefix.length);
+        remainingWord = remainingWord.substring(cleanPrefix.length);
+    }
+
+    // B. Match Suffix (at End)
+    if (cleanSuffix && remainingWord.toLowerCase().endsWith(cleanSuffix.toLowerCase())) {
+        suffixPart = remainingWord.substring(remainingWord.length - cleanSuffix.length);
+        remainingWord = remainingWord.substring(0, remainingWord.length - cleanSuffix.length);
+    }
+
+    // C. Match Root (in Middle)
+    if (cleanRoot && remainingWord.toLowerCase().includes(cleanRoot.toLowerCase())) {
+        // We need to preserve original case, so we find the index
+        const idx = remainingWord.toLowerCase().indexOf(cleanRoot.toLowerCase());
+        const beforeRoot = remainingWord.substring(0, idx);
+        rootPart = remainingWord.substring(idx, idx + cleanRoot.length);
+        const afterRoot = remainingWord.substring(idx + cleanRoot.length);
+
+        coloredWordHMTL = "";
+        if (prefixPart) coloredWordHMTL += `<span class="ety-prefix">${prefixPart}</span>`;
+        if (beforeRoot) coloredWordHMTL += beforeRoot;
+        coloredWordHMTL += `<span class="ety-root">${rootPart}</span>`;
+        if (afterRoot) coloredWordHMTL += afterRoot;
+        if (suffixPart) coloredWordHMTL += `<span class="ety-suffix">${suffixPart}</span>`;
+
+    } else {
+        // Root not strictly found or matches.
+        // Just wrap prefix and suffix
+        coloredWordHMTL = "";
+        if (prefixPart) coloredWordHMTL += `<span class="ety-prefix">${prefixPart}</span>`;
+        coloredWordHMTL += remainingWord; // This is the middle part (unknown root variant)
+        if (suffixPart) coloredWordHMTL += `<span class="ety-suffix">${suffixPart}</span>`;
+    }
+
+
+    // 3. Colorize Description & Lists
+
+    // Helper: Single-Pass Regex Colorizer (Fixes nested replacement issues)
+    function colorizeText(text, tokensOverride = []) {
+        if (!text) return "";
+        let processed = text;
+
+        // Collect tokens
+        const tokens = tokensOverride.length > 0 ? tokensOverride : [];
+
+        if (tokens.length === 0) {
+            // Default token collection
+            if (cleanPrefix) {
+                // Add exact match
+                tokens.push({ text: cleanPrefix, cls: "ety-prefix" });
+                // Add hyphenated match if likely to appear
+                tokens.push({ text: cleanPrefix + "-", cls: "ety-prefix" });
+            }
+            if (cleanRoot) {
+                tokens.push({ text: cleanRoot, cls: "ety-root" });
+            }
+            if (cleanSuffix) {
+                tokens.push({ text: cleanSuffix, cls: "ety-suffix" });
+                tokens.push({ text: "-" + cleanSuffix, cls: "ety-suffix" });
+            }
+        }
+
+        // Deduplicate and Filter
+        const uniqueTokens = [];
+        const seen = new Set();
+        // Sort by length desc (Critical for correct matching priority)
+        tokens.sort((a, b) => b.text.length - a.text.length);
+
+        tokens.forEach(t => {
+            const key = t.text.toLowerCase();
+            if (!seen.has(key) && t.text.length > 1 && key !== "none") {
+                seen.add(key);
+                uniqueTokens.push(t);
+            }
+        });
+
+        if (uniqueTokens.length === 0) return text;
+
+        // Single Pass Regex Construction
+        // Map each token to its class for lookup
+        const tokenMap = {};
+        const patterns = uniqueTokens.map(t => {
+            tokenMap[t.text.toLowerCase()] = t.cls;
+            // Escape special regex chars
+            return t.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        });
+
+        // Create a single master regex that matches any of the tokens
+        // The regex engine will try alternatives in order (which is sorted by length)
+        const masterRegex = new RegExp(`(${patterns.join('|')})`, 'gi');
+
+        return processed.replace(masterRegex, (match) => {
+            const cls = tokenMap[match.toLowerCase()];
+            if (!cls) return match;
+            return `<span class="${cls}">${match}</span>`;
+        });
+    }
+
+    // Process the description
+    // Use the default tokens (Prefix, Root, Suffix)
+    const finalDesc = colorizeText(data.desc);
+
+    // 4. Construct HTML
+
+    // For list items:
+    // We want to highlight the SPECIFIC part in that line.
+    // e.g. Prefix line: only highlight the prefix.
+    const prefixTokens = cleanPrefix ? [{ text: cleanPrefix, cls: "ety-prefix" }, { text: cleanPrefix + "-", cls: "ety-prefix" }] : [];
+    const rootTokens = cleanRoot ? [{ text: cleanRoot, cls: "ety-root" }] : [];
+    const suffixTokens = cleanSuffix ? [{ text: cleanSuffix, cls: "ety-suffix" }, { text: "-" + cleanSuffix, cls: "ety-suffix" }] : [];
+
+    const finalPrefixLine = colorizeText(data.prefix, prefixTokens);
+    const finalRootLine = colorizeText(data.root, rootTokens);
+    const finalSuffixLine = colorizeText(data.suffix, suffixTokens);
+
     currentPopup.innerHTML = `
-        <div class="ety-word">${word} <span style="font-weight:normal; font-size:14px; color:#666;">(${data.translation || '...'})</span></div>
-        <div class="ety-part"><span class="ety-label">前缀:</span><span class="ety-val">${data.prefix}</span></div>
-        <div class="ety-part"><span class="ety-label">词根:</span><span class="ety-val">${data.root}</span></div>
-        <div class="ety-part"><span class="ety-label">后缀:</span><span class="ety-val">${data.suffix}</span></div>
+        <div class="ety-word">${coloredWordHMTL} <span style="font-weight:normal; font-size:14px; color:#666;">(${data.translation || '...'})</span></div>
+        <div class="ety-part"><span class="ety-label">前缀:</span><span class="ety-val">${finalPrefixLine}</span></div>
+        <div class="ety-part"><span class="ety-label">词根:</span><span class="ety-val">${finalRootLine}</span></div>
+        <div class="ety-part"><span class="ety-label">后缀:</span><span class="ety-val">${finalSuffixLine}</span></div>
         <div class="ety-part" style="color:#555; font-size:13px; margin-top:10px; line-height:1.4; border-top:1px dashed #eee; padding-top:8px;">
-            ${data.desc}
+            ${finalDesc}
         </div>
     `;
 }
