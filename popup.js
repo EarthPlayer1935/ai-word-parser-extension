@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const input = document.getElementById('word-input');
     const btn = document.getElementById('search-btn');
     const resultArea = document.getElementById('result-area');
@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function doSearch() {
         const word = input.value.trim();
-        
+
         // 校验输入
         if (!word || !/^[a-zA-Z\s]+$/.test(word)) {
             showError("请输入有效的英文单词");
@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // 2. 发送消息给 background.js (复用之前的逻辑)
         chrome.runtime.sendMessage({ action: "analyzeWord", word: word }, (response) => {
-            
+
             loadingDiv.style.display = 'none';
 
             if (chrome.runtime.lastError) {
@@ -53,7 +53,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function showResult(word, data) {
         contentDiv.style.display = 'block';
-        
+
         document.getElementById('res-word').innerText = word;
         document.getElementById('res-prefix').innerText = data.prefix;
         document.getElementById('res-root').innerText = data.root;
@@ -68,4 +68,35 @@ document.addEventListener('DOMContentLoaded', function() {
         errorDiv.style.display = 'block';
         errorDiv.innerText = msg;
     }
+
+    // --- Settings Logic ---
+    const toggleInteractive = document.getElementById('toggle-interactive');
+
+    // 1. Load saved setting
+    chrome.storage.sync.get(['allowInteractiveHover'], (result) => {
+        // Default to false if not set
+        const isAllowed = result.allowInteractiveHover === true;
+        toggleInteractive.checked = isAllowed;
+    });
+
+    // 2. Handle change
+    toggleInteractive.addEventListener('change', () => {
+        const isAllowed = toggleInteractive.checked;
+
+        // Save to storage
+        chrome.storage.sync.set({ allowInteractiveHover: isAllowed }, () => {
+            console.log('Setting saved:', isAllowed);
+        });
+
+        // Notify active tab to update immediately
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0] && tabs[0].id) {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                    action: "updateConfig",
+                    key: "allowInteractiveHover",
+                    value: isAllowed
+                });
+            }
+        });
+    });
 });

@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <link rel="stylesheet" href="popup.css">
 </head>
+
 <body>
     <div class="container">
         <h3>构词解析查询</h3>
@@ -12,12 +14,20 @@
             <button id="search-btn">查询</button>
         </div>
 
+        <div class="settings-row">
+            <span class="setting-label">链接上/按钮上</span>
+            <label class="switch">
+                <input type="checkbox" id="toggle-interactive">
+                <span class="slider round"></span>
+            </label>
+        </div>
+
         <div id="result-area" class="result-hidden">
             <div id="loading" style="display:none;">
                 <div class="spinner"></div>
                 <p>AI 正在分析中...</p>
             </div>
-            
+
             <div id="content" style="display:none;">
                 <div class="word-title" id="res-word"></div>
                 <div class="part-row"><span class="label">前缀:</span> <span class="val" id="res-prefix"></span></div>
@@ -31,4 +41,5 @@
     </div>
     <script src="popup.js"></script>
 </body>
+
 </html>

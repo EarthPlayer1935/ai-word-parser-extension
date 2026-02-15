@@ -11,6 +11,33 @@ let timeoutPopup = null; // Timer for auto-hiding the popup
 let clearElementsTimer = null; // Timer for mousedown cleanup
 let activeAnchorRect = null; // The rect of the word that triggered the popup
 let distanceTrackHandler = null; // The bound function for mousemove tracking
+let allowInteractiveHover = false; // Setting: allow hover on links/buttons
+
+// Initialize setting
+try {
+    if (chrome.storage && chrome.storage.sync) {
+        chrome.storage.sync.get(['allowInteractiveHover'], (result) => {
+            allowInteractiveHover = result.allowInteractiveHover === true;
+        });
+    }
+} catch (e) {
+    console.log("Storage init error", e);
+}
+
+// Listen for config updates
+if (chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+        if (request.action === "updateConfig" && request.key === "allowInteractiveHover") {
+            allowInteractiveHover = request.value;
+            // Clear current highlights if we just disabled it
+            if (!allowInteractiveHover && CSS.highlights) {
+                CSS.highlights.clear();
+                lastHighlightRange = null;
+                scheduleHideIcon();
+            }
+        }
+    });
+}
 
 // 1. 清除界面元素
 function clearElements() {
@@ -352,59 +379,125 @@ function cleanEtyPart(text) {
 function updatePopupContent(word, data) {
     if (!currentPopup) return;
 
-    // 1. Prepare Data
-    const rawPrefix = data.prefix || "";
-    const rawRoot = data.root || "";
-    const rawSuffix = data.suffix || "";
+    // 1. Prepare Data with robustness
+    // Function to extract multiple parts from a line like "-able (..) and -ly (..)"
+    function extractEtyParts(text) {
+        if (!text) return [];
+        // 1. Remove parenthetical content
+        let clean = text.replace(/\s*\(.*?\)/g, " ").trim();
+        if (clean.toLowerCase() === "none") return [];
 
-    const cleanPrefix = cleanEtyPart(rawPrefix).replace(/-/g, ""); // Remove hyphens for word matching
-    const cleanRoot = cleanEtyPart(rawRoot).replace(/-/g, "");
-    const cleanSuffix = cleanEtyPart(rawSuffix).replace(/-/g, "");
+        // 2. Split by delimiters: comma, semicolon, slash, " and ", " or "
+        // We use a regex split
+        const parts = clean.split(/[,;/]| and | or /i);
+
+        // 3. Clean each part
+        return parts.map(p => {
+            return p.trim().replace(/-/g, ""); // Remove hyphens for matching
+        }).filter(p => p.length > 0);
+    }
+
+    // Extract lists of clean parts
+    const prefixParts = extractEtyParts(data.prefix);
+    const rootParts = extractEtyParts(data.root);
+    const suffixParts = extractEtyParts(data.suffix);
 
     // 2. Colorize Main Word (Title)
-    let coloredWordHMTL = word;
+    let coloredWordHMTL = "";
 
+    // We try to consume from start (prefix) and end (suffix)
     let remainingWord = word;
-    let prefixPart = "";
-    let rootPart = "";
-    let suffixPart = "";
-    let otherPart = "";
+    let titlePrefixPart = "";
+    let titleRootPart = "";
+    let titleSuffixPart = "";
 
-    // A. Match Prefix (at Start)
-    if (cleanPrefix && remainingWord.toLowerCase().startsWith(cleanPrefix.toLowerCase())) {
-        prefixPart = remainingWord.substring(0, cleanPrefix.length);
-        remainingWord = remainingWord.substring(cleanPrefix.length);
+    // A. Match Prefixes (Longest first)
+    // We sort parts by length to ensure greedy matching
+    prefixParts.sort((a, b) => b.length - a.length);
+    for (const p of prefixParts) {
+        if (remainingWord.toLowerCase().startsWith(p.toLowerCase())) {
+            titlePrefixPart += remainingWord.substring(0, p.length);
+            remainingWord = remainingWord.substring(p.length);
+            // Should we match multiple prefixes? e.g. un-pre-dictable
+            // Yes, continue? No, usually one "prefix line" covers it?
+            // But if data says "un-, pre-", we might want to match both.
+            // Let's try to match as many as possible from the start.
+            // But we must restart loop or check again?
+            // Simple version: just one pass for now or loop?
+            // Let's loop until no match found.
+            // But `prefixParts` is array. 
+            // We can check if *any* remaining part matches.
+            // Let's Stick to "iterate all parts and see if current remaining starts with it".
+        }
+    }
+    // Retry loop for multiple prefixes? 
+    // E.g. "un-" and "pre-". 
+    // If we matched "un", remaining is "predictable". "pre" matches?
+    // Let's do a while loop.
+    let foundPrefix = true;
+    while (foundPrefix && remainingWord.length > 0) {
+        foundPrefix = false;
+        for (const p of prefixParts) {
+            if (remainingWord.toLowerCase().startsWith(p.toLowerCase())) {
+                titlePrefixPart += `<span class="ety-prefix">${remainingWord.substring(0, p.length)}</span>`;
+                remainingWord = remainingWord.substring(p.length);
+                foundPrefix = true;
+                break; // Restart loop to find next prefix
+            }
+        }
     }
 
-    // B. Match Suffix (at End)
-    if (cleanSuffix && remainingWord.toLowerCase().endsWith(cleanSuffix.toLowerCase())) {
-        suffixPart = remainingWord.substring(remainingWord.length - cleanSuffix.length);
-        remainingWord = remainingWord.substring(0, remainingWord.length - cleanSuffix.length);
+    // B. Match Suffixes (at End)
+    suffixParts.sort((a, b) => b.length - a.length);
+    let foundSuffix = true;
+    // We build suffix part from the end, so we prepend to titleSuffixPart?
+    // Or we just subtract from remainingWord.
+    // We need to store the HTML string.
+    let suffixHTMLStack = []; // To preserve order [suffix1, suffix2] (inner to outer)
+
+    while (foundSuffix && remainingWord.length > 0) {
+        foundSuffix = false;
+        for (const p of suffixParts) {
+            if (remainingWord.toLowerCase().endsWith(p.toLowerCase())) {
+                const match = remainingWord.substring(remainingWord.length - p.length);
+                suffixHTMLStack.unshift(`<span class="ety-suffix">${match}</span>`); // Add to start (inner)
+                remainingWord = remainingWord.substring(0, remainingWord.length - p.length);
+                foundSuffix = true;
+                break;
+            }
+        }
     }
+    titleSuffixPart = suffixHTMLStack.join("");
 
     // C. Match Root (in Middle)
-    if (cleanRoot && remainingWord.toLowerCase().includes(cleanRoot.toLowerCase())) {
-        // We need to preserve original case, so we find the index
-        const idx = remainingWord.toLowerCase().indexOf(cleanRoot.toLowerCase());
-        const beforeRoot = remainingWord.substring(0, idx);
-        rootPart = remainingWord.substring(idx, idx + cleanRoot.length);
-        const afterRoot = remainingWord.substring(idx + cleanRoot.length);
+    // Check if any root exists in the remaining middle part
+    rootParts.sort((a, b) => b.length - a.length);
+    let bestRootMatch = null;
+    let bestRootIdx = -1;
 
-        coloredWordHMTL = "";
-        if (prefixPart) coloredWordHMTL += `<span class="ety-prefix">${prefixPart}</span>`;
-        if (beforeRoot) coloredWordHMTL += beforeRoot;
-        coloredWordHMTL += `<span class="ety-root">${rootPart}</span>`;
-        if (afterRoot) coloredWordHMTL += afterRoot;
-        if (suffixPart) coloredWordHMTL += `<span class="ety-suffix">${suffixPart}</span>`;
-
-    } else {
-        // Root not strictly found or matches.
-        // Just wrap prefix and suffix
-        coloredWordHMTL = "";
-        if (prefixPart) coloredWordHMTL += `<span class="ety-prefix">${prefixPart}</span>`;
-        coloredWordHMTL += remainingWord; // This is the middle part (unknown root variant)
-        if (suffixPart) coloredWordHMTL += `<span class="ety-suffix">${suffixPart}</span>`;
+    for (const p of rootParts) {
+        const idx = remainingWord.toLowerCase().indexOf(p.toLowerCase());
+        if (idx !== -1) {
+            bestRootMatch = p;
+            bestRootIdx = idx;
+            break; // Pick longest match found (since sorted)
+        }
     }
+
+    if (bestRootMatch) {
+        const before = remainingWord.substring(0, bestRootIdx);
+        const matched = remainingWord.substring(bestRootIdx, bestRootIdx + bestRootMatch.length);
+        const after = remainingWord.substring(bestRootIdx + bestRootMatch.length);
+
+        titleRootPart = `<span class="ety-root">${matched}</span>`;
+        otherPart = before + titleRootPart + after;
+    } else {
+        otherPart = remainingWord;
+    }
+
+    coloredWordHMTL = titlePrefixPart + otherPart + titleSuffixPart;
+
+
 
 
     // 3. Colorize Description & Lists
@@ -418,20 +511,27 @@ function updatePopupContent(word, data) {
         const tokens = tokensOverride.length > 0 ? tokensOverride : [];
 
         if (tokens.length === 0) {
-            // Default token collection
-            if (cleanPrefix) {
-                // Add exact match
-                tokens.push({ text: cleanPrefix, cls: "ety-prefix" });
-                // Add hyphenated match if likely to appear
-                tokens.push({ text: cleanPrefix + "-", cls: "ety-prefix" });
-            }
-            if (cleanRoot) {
-                tokens.push({ text: cleanRoot, cls: "ety-root" });
-            }
-            if (cleanSuffix) {
-                tokens.push({ text: cleanSuffix, cls: "ety-suffix" });
-                tokens.push({ text: "-" + cleanSuffix, cls: "ety-suffix" });
-            }
+            // Default token collection using extracted parts
+
+            // Prefixes
+            // rawPrefix might be complex, so we parse it again or use prefixParts?
+            // prefixParts contains clean strings "un", "pre"
+            prefixParts.forEach(p => {
+                tokens.push({ text: p, cls: "ety-prefix" });
+                // Hyphenated?
+                tokens.push({ text: p + "-", cls: "ety-prefix" });
+            });
+
+            // Roots
+            rootParts.forEach(p => {
+                tokens.push({ text: p, cls: "ety-root" });
+            });
+
+            // Suffixes
+            suffixParts.forEach(p => {
+                tokens.push({ text: p, cls: "ety-suffix" });
+                tokens.push({ text: "-" + p, cls: "ety-suffix" });
+            });
         }
 
         // Deduplicate and Filter
@@ -476,16 +576,29 @@ function updatePopupContent(word, data) {
 
     // 4. Construct HTML
 
-    // For list items:
-    // We want to highlight the SPECIFIC part in that line.
-    // e.g. Prefix line: only highlight the prefix.
-    const prefixTokens = cleanPrefix ? [{ text: cleanPrefix, cls: "ety-prefix" }, { text: cleanPrefix + "-", cls: "ety-prefix" }] : [];
-    const rootTokens = cleanRoot ? [{ text: cleanRoot, cls: "ety-root" }] : [];
-    const suffixTokens = cleanSuffix ? [{ text: cleanSuffix, cls: "ety-suffix" }, { text: "-" + cleanSuffix, cls: "ety-suffix" }] : [];
+    // Generate Tokens for Specific Lines
+    // We want to highlight ALL found parts in that line type.
 
-    const finalPrefixLine = colorizeText(data.prefix, prefixTokens);
-    const finalRootLine = colorizeText(data.root, rootTokens);
-    const finalSuffixLine = colorizeText(data.suffix, suffixTokens);
+    let prefixLineTokens = [];
+    prefixParts.forEach(p => {
+        prefixLineTokens.push({ text: p, cls: "ety-prefix" });
+        prefixLineTokens.push({ text: p + "-", cls: "ety-prefix" });
+    });
+
+    let rootLineTokens = [];
+    rootParts.forEach(p => {
+        rootLineTokens.push({ text: p, cls: "ety-root" });
+    });
+
+    let suffixLineTokens = [];
+    suffixParts.forEach(p => {
+        suffixLineTokens.push({ text: p, cls: "ety-suffix" });
+        suffixLineTokens.push({ text: "-" + p, cls: "ety-suffix" });
+    });
+
+    const finalPrefixLine = colorizeText(data.prefix, prefixLineTokens);
+    const finalRootLine = colorizeText(data.root, rootLineTokens);
+    const finalSuffixLine = colorizeText(data.suffix, suffixLineTokens);
 
     currentPopup.innerHTML = `
         <div class="ety-word">${coloredWordHMTL} <span style="font-weight:normal; font-size:14px; color:#666;">(${data.translation || '...'})</span></div>
@@ -577,31 +690,326 @@ if (CSS.highlights) {
         return { range: newRange, text: text.substring(start, end) };
     }
 
-    function getSentenceRange(range) {
-        if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return null;
+    // Helper to get neighbor word ranges
+    function getNeighborRanges(startNode, startOffset, endNode, endOffset, count) {
+        const ranges = [];
+        const blockElements = new Set(['DIV', 'P', 'LI', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'HR', 'TABLE', 'TR', 'TD', 'TH']);
 
-        const text = range.startContainer.textContent;
-        const offset = range.startOffset;
-        const delimiters = /[.!?。！？]/;
+        // --- 1. Find Previous Neighbors ---
+        let currNode = startNode;
+        let currOffset = startOffset;
+        let found = 0;
 
-        let start = offset;
-        while (start > 0 && !delimiters.test(text[start - 1])) {
-            start--;
+        // Move backwards from start
+        while (found < count) {
+            // Navigate backwards in DOM
+            if (currOffset > 0) {
+                // We are in a text node, check char by char? No, let's use words.
+                // But the text content might contain multiple words.
+                // We used tokenizer logic before...
+                // Let's rely on string parsing within the text node first, then jump nodes.
+                // Actually, simpler approach:
+                // We just expand the range character by character until we find a word boundary?
+                // Or use regex on the text content?
+
+                // Strategy:
+                // 1. Get text of current node up to offset.
+                // 2. Split by words.
+                // 3. If we have words, take the last one.
+                // 4. If no words, move to previous node.
+            }
+            // This is getting complicated to do robustly with raw DOM.
+            // Let's use a simpler heuristic for now: DOM Tree Walker or just traversing text nodes.
+            // Actually, let's look at `getSentenceRange` implementation... it was intra-node only.
+            // We need cross-node support ideally, but let's start with robustness within block.
+            break; // Placeholder
         }
 
-        let end = offset;
-        while (end < text.length && !delimiters.test(text[end])) {
-            end++;
+        // REVISED STRATEGY: Use TreeWalker to get text nodes in sequence.
+        function getTextNodes(root, startNode) {
+            const walker = document.createTreeWalker(
+                root,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+            );
+            const nodes = [];
+            let currentNode;
+            while (currentNode = walker.nextNode()) {
+                nodes.push(currentNode);
+            }
+            return nodes;
         }
 
-        if (end < text.length && delimiters.test(text[end])) {
-            end++;
+        // Optimized approach:
+        // Just scan the text context of the parent block? 
+        // That might be too heavy.
+
+        // Let's stick to the requested "2 neighbors".
+        // We'll search backwards and forwards.
+
+        // BACKWARD SEARCH
+        let prevRanges = [];
+        let pNode = startNode;
+        let pOffset = startOffset;
+        let wordsFound = 0;
+
+        // We need to traverse text nodes backwards.
+        // Helper to get previous text node
+        function getPrevTextNode(node) {
+            let prev = node.previousSibling;
+            while (prev) {
+                if (prev.nodeType === Node.TEXT_NODE) return prev;
+                if (prev.nodeType === Node.ELEMENT_NODE && !blockElements.has(prev.tagName)) {
+                    // Go deep
+                    if (prev.lastChild) {
+                        prev = prev.lastChild;
+                        continue;
+                    }
+                }
+                prev = prev.previousSibling;
+            }
+            // Go up and prev
+            let parent = node.parentNode;
+            if (parent && parent !== document.body && !blockElements.has(parent.tagName)) {
+                return getPrevTextNode(parent);
+            }
+            return null;
         }
 
-        const newRange = document.createRange();
-        newRange.setStart(range.startContainer, start);
-        newRange.setEnd(range.startContainer, end);
-        return newRange;
+        // Simple Backward Scan within simple text flow
+        // Only scan within the same block element to avoid crossing paragraphs
+        const parentBlock = (function (node) {
+            let p = node.parentElement;
+            while (p && window.getComputedStyle(p).display === 'inline') {
+                p = p.parentElement;
+            }
+            return p || document.body;
+        })(startNode);
+
+
+        // Build a stream of text from the block... 
+        // Maybe using `Intl.Segmenter` if available? 
+        // Or just regex.
+
+        // Let's try a range expansion approach using `modify`.
+        // Note: `selection.modify` alters selection. We don't want that.
+
+        // Let's simply look at the textContent of the block and map it back to ranges?
+        // Hard to map back.
+
+        // Manual DOM Traversal it is.
+
+        // ... (Implementation detail: I will stick to a simpler "Same Text Node" + "Previous Text Node" logic for stability first)
+        // Actually, `getSentenceRange` was already limited.
+
+        function isWordChar(char) {
+            return /[a-zA-Z0-9\u00C0-\u00FF'’\-]/.test(char);
+        }
+
+        // Backward
+        let foundCount = 0;
+        let tempRanges = [];
+
+        let walker = document.createTreeWalker(parentBlock, NodeFilter.SHOW_TEXT, null, false);
+        let allTextNodes = [];
+        let n;
+        while (n = walker.nextNode()) allTextNodes.push(n);
+
+        let startIndex = allTextNodes.indexOf(startNode);
+        if (startIndex === -1) return []; // Should not happen
+
+        // Search Backwards
+        let currentTextStr = allTextNodes[startIndex].textContent;
+        let cursor = startOffset;
+        let nodeIdx = startIndex;
+
+        for (let i = 0; i < count; i++) {
+            // Search for end of word
+            while (nodeIdx >= 0) {
+                while (cursor > 0) {
+                    if (isWordChar(currentTextStr[cursor - 1])) {
+                        // Found end of a word?
+                        // Verify it's a word end? We are moving backwards.
+                        // We need to skip spaces first.
+                        break;
+                    }
+                    cursor--;
+                }
+                if (cursor > 0 && isWordChar(currentTextStr[cursor - 1])) break; // Found word char
+
+                // Move to prev node
+                nodeIdx--;
+                if (nodeIdx >= 0) {
+                    currentTextStr = allTextNodes[nodeIdx].textContent;
+                    cursor = currentTextStr.length;
+                }
+            }
+
+            if (nodeIdx < 0) break;
+
+            // Found end of word (at cursor). Now find start.
+            let endWordCursor = cursor;
+            let endWordNodeIdx = nodeIdx;
+
+            while (nodeIdx >= 0) {
+                while (cursor > 0) {
+                    if (!isWordChar(currentTextStr[cursor - 1])) {
+                        break;
+                    }
+                    cursor--;
+                }
+                if (cursor > 0 || (cursor === 0 && nodeIdx === 0)) break; // Found start
+                if (cursor === 0 && nodeIdx > 0 && isWordChar(currentTextStr[0])) {
+                    // Check previous node to see if word continues?
+                    // For simplicity, let's break word at node boundary if needed, or check.
+                    // Let's assume word doesn't span nodes for now or just take what we have.
+
+                    // Actually, let's just stop at node start for simplicity in this iteration.
+                    // If we needed to merge, we'd need complex logic.
+                    break;
+                }
+                // If we reached 0 and it IS a word char, we might need to continue to prev node
+                // but for now let's stop.
+            }
+
+            // Create Range
+            let r = document.createRange();
+            r.setStart(allTextNodes[nodeIdx], cursor);
+            r.setEnd(allTextNodes[endWordNodeIdx], endWordCursor);
+            tempRanges.push(r);
+
+            // Prepare for next word
+            // cursor is already at start of word (or space before it). 
+            // The outer loop's skip-space logic will handle moving further back.
+        }
+
+        // Reverse because we found them closest-first
+        // But wait, the loop above logic is a bit slightly flawed for "skipping spaces"
+        // Let's rewrite strictly:
+
+        // 1. Skip non-word chars (backwards)
+        // 2. Scan word chars (backwards) -> Define Word
+
+        // Reset
+        cursor = startOffset;
+        nodeIdx = startIndex;
+        tempRanges = [];
+
+        for (let i = 0; i < count; i++) {
+            // 1. Skip non-word
+            while (true) {
+                if (cursor > 0) {
+                    if (isWordChar(allTextNodes[nodeIdx].textContent[cursor - 1])) break;
+                    cursor--;
+                } else {
+                    if (nodeIdx > 0) {
+                        nodeIdx--;
+                        cursor = allTextNodes[nodeIdx].textContent.length;
+                    } else {
+                        break; // End of doc
+                    }
+                }
+            }
+            if (nodeIdx === 0 && cursor === 0) break;
+
+            let wordEndNode = allTextNodes[nodeIdx];
+            let wordEndOffset = cursor;
+
+            // 2. Scan word
+            while (true) {
+                if (cursor > 0) {
+                    if (!isWordChar(allTextNodes[nodeIdx].textContent[cursor - 1])) break;
+                    cursor--;
+                } else {
+                    if (nodeIdx > 0) {
+                        // Check if prev node ends with word char?
+                        // If yes, continue word?
+                        let prevNode = allTextNodes[nodeIdx - 1];
+                        if (isWordChar(prevNode.textContent[prevNode.textContent.length - 1])) {
+                            nodeIdx--;
+                            cursor = prevNode.textContent.length;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            let wordStartNode = allTextNodes[nodeIdx];
+            let wordStartOffset = cursor;
+
+            // Add Range
+            let r = document.createRange();
+            r.setStart(wordStartNode, wordStartOffset);
+            r.setEnd(wordEndNode, wordEndOffset);
+            tempRanges.push(r);
+        }
+
+        ranges.push(...tempRanges);
+
+        // FORWARD SEARCH
+        cursor = endOffset;
+        nodeIdx = startIndex; // Start from end of selected word
+        tempRanges = [];
+
+        for (let i = 0; i < count; i++) {
+            // 1. Skip non-word
+            while (true) {
+                let txt = allTextNodes[nodeIdx].textContent;
+                if (cursor < txt.length) {
+                    if (isWordChar(txt[cursor])) break;
+                    cursor++;
+                } else {
+                    if (nodeIdx < allTextNodes.length - 1) {
+                        nodeIdx++;
+                        cursor = 0;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if (nodeIdx === allTextNodes.length - 1 && cursor === allTextNodes[nodeIdx].textContent.length) break;
+
+            let wordStartNode = allTextNodes[nodeIdx];
+            let wordStartOffset = cursor;
+
+            // 2. Scan word
+            while (true) {
+                let txt = allTextNodes[nodeIdx].textContent;
+                if (cursor < txt.length) {
+                    if (!isWordChar(txt[cursor])) break;
+                    cursor++;
+                } else {
+                    if (nodeIdx < allTextNodes.length - 1) {
+                        // Check if next node starts with word char
+                        let nextNode = allTextNodes[nodeIdx + 1];
+                        if (isWordChar(nextNode.textContent[0])) {
+                            nodeIdx++;
+                            cursor = 0;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            let wordEndNode = allTextNodes[nodeIdx];
+            let wordEndOffset = cursor;
+
+            let r = document.createRange();
+            r.setStart(wordStartNode, wordStartOffset);
+            r.setEnd(wordEndNode, wordEndOffset);
+            tempRanges.push(r);
+        }
+
+        ranges.push(...tempRanges);
+
+        return ranges;
     }
 
     let ticking = false;
@@ -680,108 +1088,291 @@ if (CSS.highlights) {
         const interactiveParent = getInteractiveParent(range.startContainer);
 
         if (interactiveParent) {
-            // 1. Interactive Element (Link/Button) -> REMOVE ALL EFFECTS
-            CSS.highlights.clear();
-            lastHighlightRange = null;
-            // No icon, no highlights. Just return.
-            return;
-        } else {
-            // 2. Normal Text -> Apply Highlights
+            // 1. Interactive Element (Link/Button)
+            // Check setting: if NOT allowed, remove effects and return
+            if (!allowInteractiveHover) {
+                CSS.highlights.clear();
+                lastHighlightRange = null;
+                // No icon, no highlights. Just return.
+                return;
+            }
+            // If allowed, fall through to Normal Text logic...
+        }
 
-            // Helper to check if we should use "clean" style (no background color)
-            // This is for dark mode or complex backgrounds (like Spotify lyrics)
-            function shouldUseCleanStyle(node) {
-                if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+        // 2. Normal Text (or Allowed Interactive) -> Apply Highlights
 
-                const style = window.getComputedStyle(node);
+        // Helper to check if we should use "clean" style (no background color)
+        // This is for dark mode or complex backgrounds (like Spotify lyrics)
+        function shouldUseCleanStyle(node) {
+            if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
 
-                // Check 1: Text Color (Light text usually implies dark background)
-                const color = style.color || "";
-                const colorMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-                if (colorMatch) {
-                    const r = parseInt(colorMatch[1]);
-                    const g = parseInt(colorMatch[2]);
-                    const b = parseInt(colorMatch[3]);
-                    // Brightness > 200 (out of 255) considered "Light"
-                    // If text is white/light, we use clean style.
-                    if ((r * 0.299 + g * 0.587 + b * 0.114) > 200) {
-                        return true;
+            const style = window.getComputedStyle(node);
+
+            // Check 1: Text Color (Light text usually implies dark background)
+            const color = style.color || "";
+            const colorMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+            if (colorMatch) {
+                const r = parseInt(colorMatch[1]);
+                const g = parseInt(colorMatch[2]);
+                const b = parseInt(colorMatch[3]);
+                // Brightness > 200 (out of 255) considered "Light"
+                // If text is white/light, we use clean style.
+                if ((r * 0.299 + g * 0.587 + b * 0.114) > 200) {
+                    return true;
+                }
+            }
+
+            // Check 2: Background Color
+            // We check up to 4 levels to find a background
+            let curr = node;
+            for (let i = 0; i < 4; i++) {
+                if (!curr) break;
+
+                const bgStyle = window.getComputedStyle(curr);
+                const bgColor = bgStyle.backgroundColor;
+
+                // Regex to parse rgba including alpha
+                const bgMatch = bgColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d\.]+))?\)/);
+                if (bgMatch) {
+                    const r = parseInt(bgMatch[1]);
+                    const g = parseInt(bgMatch[2]);
+                    const b = parseInt(bgMatch[3]);
+                    const a = bgMatch[4] !== undefined ? parseFloat(bgMatch[4]) : 1;
+
+                    if (a > 0.1) { // If visible
+                        // If significantly dark/colored (< 240) -> Use Clean Style
+                        if (r < 240 || g < 240 || b < 240) {
+                            return true;
+                        }
+                        // If it is Light (>= 240) AND Opaque (> 0.9) -> Use Normal Style
+                        if (a > 0.9) {
+                            return false;
+                        }
                     }
                 }
 
-                // Check 2: Background Color
-                // We check up to 4 levels to find a background
-                let curr = node;
-                for (let i = 0; i < 4; i++) {
-                    if (!curr) break;
+                // Background Image -> Assume Complex -> Clean Style
+                if (bgStyle.backgroundImage && bgStyle.backgroundImage !== 'none') {
+                    return true;
+                }
 
-                    const bgStyle = window.getComputedStyle(curr);
-                    const bgColor = bgStyle.backgroundColor;
+                curr = curr.parentElement;
+            }
 
-                    // Regex to parse rgba including alpha
-                    const bgMatch = bgColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d\.]+))?\)/);
-                    if (bgMatch) {
-                        const r = parseInt(bgMatch[1]);
-                        const g = parseInt(bgMatch[2]);
-                        const b = parseInt(bgMatch[3]);
-                        const a = bgMatch[4] !== undefined ? parseFloat(bgMatch[4]) : 1;
+            return false;
+        }
 
-                        if (a > 0.1) { // If visible
-                            // If significantly dark/colored (< 240) -> Use Clean Style
-                            if (r < 240 || g < 240 || b < 240) {
-                                return true;
-                            }
-                            // If it is Light (>= 240) AND Opaque (> 0.9) -> Use Normal Style
-                            if (a > 0.9) {
-                                return false;
+        // Helper to get neighbor word ranges with distance
+        function getNeighborRanges(startNode, startOffset, endNode, endOffset, count) {
+            const rangesVec = []; // Array of arrays: [ [L1, R1], [L2, R2], ... ]
+            // Strategy: Find neighbors iteratively
+
+            // Helper: Get text nodes in block
+            const blockElements = new Set(['DIV', 'P', 'LI', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'HR', 'TABLE', 'TR', 'TD', 'TH']);
+            const parentBlock = (function (node) {
+                let p = node.parentElement;
+                while (p && window.getComputedStyle(p).display === 'inline') {
+                    p = p.parentElement;
+                }
+                return p || document.body;
+            })(startNode);
+
+            const walker = document.createTreeWalker(parentBlock, NodeFilter.SHOW_TEXT, null, false);
+            const allTextNodes = [];
+            let n;
+            while (n = walker.nextNode()) allTextNodes.push(n);
+
+            let startIndex = allTextNodes.indexOf(startNode);
+            if (startIndex === -1) return [];
+
+            function isWordChar(char) {
+                return /[a-zA-Z0-9\u00C0-\u00FF'’\-]/.test(char);
+            }
+
+            // Backward Search
+            // Returns array of ranges, closest first
+            function findBackwards(startIdx, startOff, k) {
+                let results = [];
+                let cursor = startOff;
+                let nodeIdx = startIdx;
+
+                for (let i = 0; i < k; i++) {
+                    // 1. Skip non-word
+                    while (true) {
+                        if (cursor > 0) {
+                            if (isWordChar(allTextNodes[nodeIdx].textContent[cursor - 1])) break;
+                            cursor--;
+                        } else {
+                            if (nodeIdx > 0) {
+                                nodeIdx--;
+                                cursor = allTextNodes[nodeIdx].textContent.length;
+                            } else {
+                                break;
                             }
                         }
                     }
+                    if (nodeIdx === 0 && cursor === 0) break;
 
-                    // Background Image -> Assume Complex -> Clean Style
-                    if (bgStyle.backgroundImage && bgStyle.backgroundImage !== 'none') {
-                        return true;
+                    let wordEndNode = allTextNodes[nodeIdx];
+                    let wordEndOffset = cursor;
+
+                    // 2. Scan word
+                    while (true) {
+                        if (cursor > 0) {
+                            if (!isWordChar(allTextNodes[nodeIdx].textContent[cursor - 1])) break;
+                            cursor--;
+                        } else {
+                            if (nodeIdx > 0) {
+                                let prevNode = allTextNodes[nodeIdx - 1];
+                                if (isWordChar(prevNode.textContent[prevNode.textContent.length - 1])) {
+                                    nodeIdx--;
+                                    cursor = prevNode.textContent.length;
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
                     }
+                    let wordStartNode = allTextNodes[nodeIdx];
+                    let wordStartOffset = cursor;
 
-                    curr = curr.parentElement;
+                    let r = document.createRange();
+                    r.setStart(wordStartNode, wordStartOffset);
+                    r.setEnd(wordEndNode, wordEndOffset);
+                    results.push(r);
                 }
-
-                return false;
+                return results;
             }
 
-            const sentenceRange = getSentenceRange(range);
-            const wordHighlight = new Highlight(wordData.range);
-            const sentenceHighlight = new Highlight(sentenceRange);
+            // Forward Search
+            function findForwards(startIdx, startOff, k) {
+                let results = [];
+                let cursor = startOff;
+                let nodeIdx = startIdx;
 
-            const element = range.startContainer.parentElement;
+                for (let i = 0; i < k; i++) {
+                    // 1. Skip non-word
+                    while (true) {
+                        let txt = allTextNodes[nodeIdx].textContent;
+                        if (cursor < txt.length) {
+                            if (isWordChar(txt[cursor])) break;
+                            cursor++;
+                        } else {
+                            if (nodeIdx < allTextNodes.length - 1) {
+                                nodeIdx++;
+                                cursor = 0;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    if (nodeIdx === allTextNodes.length - 1 && cursor === allTextNodes[nodeIdx].textContent.length) break;
 
-            if (shouldUseCleanStyle(element)) {
-                // Apply Clean Style (Underline only, no background)
-                CSS.highlights.set("word-highlight-clean", wordHighlight);
-                CSS.highlights.set("sentence-highlight-clean", sentenceHighlight);
-                // Ensure normal highlights are removed
-                CSS.highlights.delete("word-highlight");
-                CSS.highlights.delete("sentence-highlight");
-            } else {
-                // Apply Normal Style
-                CSS.highlights.set("word-highlight", wordHighlight);
-                CSS.highlights.set("sentence-highlight", sentenceHighlight);
-                // Ensure clean highlights are removed
-                CSS.highlights.delete("word-highlight-clean");
-                CSS.highlights.delete("sentence-highlight-clean");
+                    let wordStartNode = allTextNodes[nodeIdx];
+                    let wordStartOffset = cursor;
+
+                    // 2. Scan word
+                    while (true) {
+                        let txt = allTextNodes[nodeIdx].textContent;
+                        if (cursor < txt.length) {
+                            if (!isWordChar(txt[cursor])) break;
+                            cursor++;
+                        } else {
+                            if (nodeIdx < allTextNodes.length - 1) {
+                                let nextNode = allTextNodes[nodeIdx + 1];
+                                if (isWordChar(nextNode.textContent[0])) {
+                                    nodeIdx++;
+                                    cursor = 0;
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    let wordEndNode = allTextNodes[nodeIdx];
+                    let wordEndOffset = cursor;
+
+                    let r = document.createRange();
+                    r.setStart(wordStartNode, wordStartOffset);
+                    r.setEnd(wordEndNode, wordEndOffset);
+                    results.push(r);
+                }
+                return results;
             }
 
-            lastHighlightRange = wordData.range;
-            lastHoveredText = wordData.text;
+            const leftRanges = findBackwards(startIndex, startOffset, count);
+            const rightRanges = findForwards(startIndex, endOffset, count);
 
-            // If we are browsing normal text, we might want to auto-hide the icon 
-            // if we moved away from a link previously.
-            // MODIFIED: If we are hovering the text that triggers the popup, KEEP IT.
-            if (currentPopup && currentPopupWord && wordData.text === currentPopupWord) {
-                cancelHideIcon();
-            } else {
-                scheduleHideIcon();
-            }
+            return { left: leftRanges, right: rightRanges };
+        }
+
+        // Get categorized neighbors
+        const neighbors = getNeighborRanges(range.startContainer, range.startOffset, range.endContainer, range.endOffset, 3);
+
+        // Level 1: Immediate neighbors (Index 0 of left and right)
+        const level1Ranges = [];
+        if (neighbors.left[0]) level1Ranges.push(neighbors.left[0]);
+        if (neighbors.right[0]) level1Ranges.push(neighbors.right[0]);
+
+        // Level 2: Outer neighbors (Index 1 of left and right)
+        const level2Ranges = [];
+        if (neighbors.left[1]) level2Ranges.push(neighbors.left[1]);
+        if (neighbors.right[1]) level2Ranges.push(neighbors.right[1]);
+
+        const wordHighlight = new Highlight(wordData.range);
+        const neighborHighlight1 = new Highlight(...level1Ranges);
+        const neighborHighlight2 = new Highlight(...level2Ranges);
+
+        const element = range.startContainer.parentElement;
+
+        if (shouldUseCleanStyle(element)) {
+            // Apply Clean Style (Underline only, no background)
+            CSS.highlights.set("word-highlight-clean", wordHighlight);
+
+            // For neighbors in clean style, separate classes if needed, or unify?
+            // User didn't specify gradient for clean style, let's just use dashed for all neighbors for simplicity
+            const neighborHighlightClean = new Highlight(...level1Ranges, ...level2Ranges);
+            CSS.highlights.set("neighbor-highlight-clean", neighborHighlightClean);
+
+            // Ensure other highlights are removed
+            CSS.highlights.delete("word-highlight");
+            CSS.highlights.delete("neighbor-highlight-1");
+            CSS.highlights.delete("neighbor-highlight-2");
+            CSS.highlights.delete("neighbor-highlight"); // Old
+            CSS.highlights.delete("sentence-highlight");
+            CSS.highlights.delete("sentence-highlight-clean");
+        } else {
+            // Apply Normal Style
+            CSS.highlights.set("word-highlight", wordHighlight);
+            // Apply Gradient Highlights
+            if (level1Ranges.length > 0) CSS.highlights.set("neighbor-highlight-1", neighborHighlight1);
+            else CSS.highlights.delete("neighbor-highlight-1");
+
+            if (level2Ranges.length > 0) CSS.highlights.set("neighbor-highlight-2", neighborHighlight2);
+            else CSS.highlights.delete("neighbor-highlight-2");
+
+            // Ensure clean/old highlights are removed
+            CSS.highlights.delete("word-highlight-clean");
+            CSS.highlights.delete("neighbor-highlight-clean");
+            CSS.highlights.delete("neighbor-highlight"); // Old
+            CSS.highlights.delete("sentence-highlight-clean");
+            CSS.highlights.delete("sentence-highlight");
+        }
+
+        lastHighlightRange = wordData.range;
+        lastHoveredText = wordData.text;
+
+        // If we are browsing normal text, we might want to auto-hide the icon 
+        // if we moved away from a link previously.
+        // MODIFIED: If we are hovering the text that triggers the popup, KEEP IT.
+        if (currentPopup && currentPopupWord && wordData.text === currentPopupWord) {
+            cancelHideIcon();
+        } else {
+            scheduleHideIcon();
         }
     }
 

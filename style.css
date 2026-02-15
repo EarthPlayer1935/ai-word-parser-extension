@@ -137,11 +137,11 @@
 }
 
 ::highlight(word-highlight) {
-  background-color: #69f0ae;
-  /* 较深的青绿色 (单词) */
+  background-color: #00e676;
+  /* Level 0: Vibrant High-Sat Green (Matches "will") */
   color: inherit;
   text-decoration: underline;
-  text-decoration-color: #00695c;
+  text-decoration-color: #00a152;
   cursor: pointer;
 }
 
@@ -151,6 +151,41 @@
   text-decoration: underline;
   text-decoration-color: currentColor;
   text-decoration-thickness: 2px;
+  cursor: pointer;
+}
+
+::highlight(neighbor-highlight-1) {
+  background-color: #69f0ae;
+  /* Level 1: Medium Light Green (Matches "they"/"not") */
+  color: inherit;
+  cursor: pointer;
+}
+
+::highlight(neighbor-highlight-2) {
+  background-color: #b9f6ca;
+  /* Level 2: Pale Green (Matches "but"/"remain") */
+  color: inherit;
+  cursor: pointer;
+}
+
+::highlight(neighbor-highlight-clean) {
+  background-color: transparent;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+
+::highlight(neighbor-highlight-clean) {
+  background-color: transparent;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-decoration-style: dashed;
+  /* Dashed underline for clean style neighbors */
+  text-decoration-thickness: 1px;
   cursor: pointer;
 }
 
