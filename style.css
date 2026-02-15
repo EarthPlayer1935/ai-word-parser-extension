@@ -1,5 +1,5 @@
 /* 构字小图标 */
-#etymology-icon-btn {
+#ety-ext-icon-btn {
   position: absolute;
   width: 22px;
   height: 22px;
@@ -16,11 +16,11 @@
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
   user-select: none;
   font-weight: bold;
-  animation: fadeIn 0.2s ease-out;
+  animation: ety-ext-fadeIn 0.2s ease-out;
 }
 
 /* 悬浮弹窗 */
-#etymology-popup-card {
+#ety-ext-popup-card {
   position: absolute;
   min-width: 200px;
   max-width: 300px;
@@ -43,12 +43,12 @@
   opacity: 1;
 }
 
-#etymology-popup-card.show {
+#ety-ext-popup-card.show {
   opacity: 1;
 }
 
 /* 弹窗内部样式 */
-.ety-word {
+.ety-ext-word {
   font-weight: bold;
   font-size: 16px;
   color: #2c3e50;
@@ -63,40 +63,40 @@
   z-index: 10;
 }
 
-.ety-part {
+.ety-ext-part {
   margin-bottom: 4px;
 }
 
-.ety-label {
+.ety-ext-label {
   color: #888;
   font-size: 12px;
   margin-right: 5px;
 }
 
-.ety-val {
+.ety-ext-val {
   color: #333;
   font-weight: 500;
 }
 
-.ety-prefix {
+.ety-ext-prefix {
   color: #4483ea;
   /* Blue */
   font-weight: bold;
 }
 
-.ety-root {
+.ety-ext-root {
   color: #f2bb06;
   /* Yellow */
   font-weight: bold;
 }
 
-.ety-suffix {
+.ety-ext-suffix {
   color: #e54430;
   /* Red */
   font-weight: bold;
 }
 
-@keyframes fadeIn {
+@keyframes ety-ext-fadeIn {
   from {
     opacity: 0;
     transform: translateY(-90%);
@@ -109,17 +109,17 @@
 }
 
 /* style.css - 添加加载动画样式 */
-.ety-loader {
+.ety-ext-loader {
   width: 24px;
   height: 24px;
   border: 3px solid #f3f3f3;
   border-top: 3px solid #3498db;
   /* 蓝色旋转头 */
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: ety-ext-spin 1s linear infinite;
 }
 
-@keyframes spin {
+@keyframes ety-ext-spin {
   0% {
     transform: rotate(0deg);
   }

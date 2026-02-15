@@ -39,7 +39,27 @@ if (chrome.runtime && chrome.runtime.onMessage) {
     });
 }
 
+// Helper: Safely Send Message
+function safelySendMessage(message, callback) {
+    if (chrome.runtime?.id) {
+        chrome.runtime.sendMessage(message, (response) => {
+            const lastError = chrome.runtime.lastError;
+            if (lastError) {
+                console.warn("Runtime message error:", lastError);
+                if (callback) callback({ success: false, error: lastError.message || "Connection error" });
+                return;
+            }
+            if (callback) callback(response);
+        });
+    } else {
+        console.warn("Extension context invalidated.");
+    }
+}
+
 // 1. 清除界面元素
+/**
+ * Clears all extension UI elements (icons, popups) and timers.
+ */
 function clearElements() {
     if (clearElementsTimer) {
         clearTimeout(clearElementsTimer);
@@ -75,29 +95,39 @@ function startDistanceTracking(rect) {
         document.removeEventListener('mousemove', distanceTrackHandler);
     }
 
+    let ticking = false;
     distanceTrackHandler = (e) => {
-        if (!currentPopup || !activeAnchorRect) return;
+        const clientX = e.clientX;
+        const clientY = e.clientY;
 
-        // If mouse is inside Popup, Opacity = 1
-        const popupRect = currentPopup.getBoundingClientRect();
-        if (e.clientX >= popupRect.left && e.clientX <= popupRect.right &&
-            e.clientY >= popupRect.top && e.clientY <= popupRect.bottom) {
-            currentPopup.style.opacity = 1;
-            return;
+        if (!ticking) {
+            window.requestAnimationFrame(() => {
+                if (!currentPopup || !activeAnchorRect) {
+                    ticking = false;
+                    return;
+                }
+
+                // If mouse is inside Popup, Opacity = 1
+                const popupRect = currentPopup.getBoundingClientRect();
+                if (clientX >= popupRect.left && clientX <= popupRect.right &&
+                    clientY >= popupRect.top && clientY <= popupRect.bottom) {
+                    currentPopup.style.opacity = 1;
+                    ticking = false;
+                    return;
+                }
+
+                // Calculate distance to the WORD (Anchor)
+                const d = getDistanceToRect(clientX, clientY, activeAnchorRect);
+
+                // Max distance 500px (User requested higher sensitivity range, 500px)
+                const MAX_DIST = 500;
+                const opacity = Math.max(0, 1 - d / MAX_DIST);
+
+                currentPopup.style.opacity = opacity;
+                ticking = false;
+            });
+            ticking = true;
         }
-
-        // Calculate distance to the WORD (Anchor)
-        const d = getDistanceToRect(e.clientX, e.clientY, activeAnchorRect);
-
-        // Max distance 500px (User requested higher sensitivity range, 500px)
-        const MAX_DIST = 500;
-        const opacity = Math.max(0, 1 - d / MAX_DIST);
-
-        currentPopup.style.opacity = opacity;
-
-        // Optional: If completely invisible, maybe allow clicks through?
-        // But user just said "disappear completely", not "gone". 
-        // Existing logic handles clicks elsewhere to close it.
     };
 
     document.addEventListener('mousemove', distanceTrackHandler);
@@ -165,6 +195,12 @@ document.addEventListener('mouseup', function (e) {
 
 // 提取的创建图标逻辑
 // Added autoHide parameter
+/**
+ * Creates and displays the etymology icon near the selected text.
+ * @param {DOMRect} rect - The bounding rectangle of the selection.
+ * @param {string} text - The selected text.
+ * @param {boolean} [autoHide=false] - Whether the icon should auto-hide.
+ */
 function createEtymologyIcon(rect, text, autoHide = false) {
     // --- 步骤A：位置计算 ---
     // 加上滚动条偏移量，算出绝对位置
@@ -194,7 +230,7 @@ function createEtymologyIcon(rect, text, autoHide = false) {
     // --- 步骤C：创建图标 ---
     const icon = document.createElement('img');
     icon.src = chrome.runtime.getURL('images/icon48.png'); // Use the 48px logo
-    icon.id = 'etymology-icon-btn';
+    icon.id = 'ety-ext-icon-btn';
     // icon.innerText = '构'; // Removed text
     icon.dataset.isAutoHide = String(autoHide); // Store the mode
 
@@ -227,12 +263,7 @@ function createEtymologyIcon(rect, text, autoHide = false) {
         showPopupLoading(text, positionData);
 
         // 发送消息给后台
-        chrome.runtime.sendMessage({ action: "analyzeWord", word: text }, (response) => {
-            if (chrome.runtime.lastError) {
-                console.warn("连接断开或后台报错:", chrome.runtime.lastError);
-                return;
-            }
-
+        safelySendMessage({ action: "analyzeWord", word: text }, (response) => {
             if (response && response.success) {
                 updatePopupContent(text, response.data);
             } else {
@@ -296,11 +327,16 @@ document.addEventListener('mousedown', function (e) {
 
 // --- UI 显示函数 (保持不变) ---
 
+/**
+ * Shows the popup loading state and positions it relative to the selection.
+ * @param {string} word - The word being analyzed.
+ * @param {Object} pos - Position data object.
+ */
 function showPopupLoading(word, pos) {
     currentPopupWord = word;
     if (!currentPopup) {
         currentPopup = document.createElement('div');
-        currentPopup.id = 'etymology-popup-card';
+        currentPopup.id = 'ety-ext-popup-card';
         // Keep popup open if hovered, hide if left
         currentPopup.addEventListener('mouseenter', () => {
             cancelHideIcon();
@@ -315,9 +351,9 @@ function showPopupLoading(word, pos) {
     if (typeof timeoutPopup !== 'undefined') clearTimeout(timeoutPopup);
 
     currentPopup.innerHTML = `
-        <div class="ety-word">${word}</div>
+        <div class="ety-ext-word">${word}</div>
         <div style="padding: 15px 0; display: flex; align-items: center; justify-content: center; flex-direction: column;">
-            <div class="ety-loader"></div>
+            <div class="ety-ext-loader"></div>
             <div style="color:#999; font-size:12px; margin-top:8px;">AI 正在分析词源...</div>
         </div>
     `;
@@ -376,6 +412,11 @@ function cleanEtyPart(text) {
 }
 
 
+/**
+ * Updates the popup content with the analysis data.
+ * @param {string} word - The word analyzed.
+ * @param {Object} data - The etymology data (root, prefix, suffix, etc.).
+ */
 function updatePopupContent(word, data) {
     if (!currentPopup) return;
 
@@ -414,22 +455,7 @@ function updatePopupContent(word, data) {
     // A. Match Prefixes (Longest first)
     // We sort parts by length to ensure greedy matching
     prefixParts.sort((a, b) => b.length - a.length);
-    for (const p of prefixParts) {
-        if (remainingWord.toLowerCase().startsWith(p.toLowerCase())) {
-            titlePrefixPart += remainingWord.substring(0, p.length);
-            remainingWord = remainingWord.substring(p.length);
-            // Should we match multiple prefixes? e.g. un-pre-dictable
-            // Yes, continue? No, usually one "prefix line" covers it?
-            // But if data says "un-, pre-", we might want to match both.
-            // Let's try to match as many as possible from the start.
-            // But we must restart loop or check again?
-            // Simple version: just one pass for now or loop?
-            // Let's loop until no match found.
-            // But `prefixParts` is array. 
-            // We can check if *any* remaining part matches.
-            // Let's Stick to "iterate all parts and see if current remaining starts with it".
-        }
-    }
+
     // Retry loop for multiple prefixes? 
     // E.g. "un-" and "pre-". 
     // If we matched "un", remaining is "predictable". "pre" matches?
@@ -439,7 +465,7 @@ function updatePopupContent(word, data) {
         foundPrefix = false;
         for (const p of prefixParts) {
             if (remainingWord.toLowerCase().startsWith(p.toLowerCase())) {
-                titlePrefixPart += `<span class="ety-prefix">${remainingWord.substring(0, p.length)}</span>`;
+                titlePrefixPart += `<span class="ety-ext-prefix">${remainingWord.substring(0, p.length)}</span>`;
                 remainingWord = remainingWord.substring(p.length);
                 foundPrefix = true;
                 break; // Restart loop to find next prefix
@@ -460,7 +486,7 @@ function updatePopupContent(word, data) {
         for (const p of suffixParts) {
             if (remainingWord.toLowerCase().endsWith(p.toLowerCase())) {
                 const match = remainingWord.substring(remainingWord.length - p.length);
-                suffixHTMLStack.unshift(`<span class="ety-suffix">${match}</span>`); // Add to start (inner)
+                suffixHTMLStack.unshift(`<span class="ety-ext-suffix">${match}</span>`); // Add to start (inner)
                 remainingWord = remainingWord.substring(0, remainingWord.length - p.length);
                 foundSuffix = true;
                 break;
@@ -489,7 +515,7 @@ function updatePopupContent(word, data) {
         const matched = remainingWord.substring(bestRootIdx, bestRootIdx + bestRootMatch.length);
         const after = remainingWord.substring(bestRootIdx + bestRootMatch.length);
 
-        titleRootPart = `<span class="ety-root">${matched}</span>`;
+        titleRootPart = `<span class="ety-ext-root">${matched}</span>`;
         otherPart = before + titleRootPart + after;
     } else {
         otherPart = remainingWord;
@@ -507,6 +533,16 @@ function updatePopupContent(word, data) {
         if (!text) return "";
         let processed = text;
 
+        // --- Mask Parentheses Content (Protection) ---
+        // We replace content inside (...) with placeholders to prevent coloring
+        const placeholders = [];
+        // Regex selects (...) blocks. We use a simple non-greedy match.
+        // Handling nested parentheses with JS Regex is hard, but simple `\([^)]*\)` covers 95% of etymologies.
+        processed = processed.replace(/\([^)]*\)/g, (match) => {
+            placeholders.push(match);
+            return `__PAREN_MASK_${placeholders.length - 1}__`;
+        });
+
         // Collect tokens
         const tokens = tokensOverride.length > 0 ? tokensOverride : [];
 
@@ -517,20 +553,20 @@ function updatePopupContent(word, data) {
             // rawPrefix might be complex, so we parse it again or use prefixParts?
             // prefixParts contains clean strings "un", "pre"
             prefixParts.forEach(p => {
-                tokens.push({ text: p, cls: "ety-prefix" });
+                tokens.push({ text: p, cls: "ety-ext-prefix" });
                 // Hyphenated?
-                tokens.push({ text: p + "-", cls: "ety-prefix" });
+                tokens.push({ text: p + "-", cls: "ety-ext-prefix" });
             });
 
             // Roots
             rootParts.forEach(p => {
-                tokens.push({ text: p, cls: "ety-root" });
+                tokens.push({ text: p, cls: "ety-ext-root" });
             });
 
             // Suffixes
             suffixParts.forEach(p => {
-                tokens.push({ text: p, cls: "ety-suffix" });
-                tokens.push({ text: "-" + p, cls: "ety-suffix" });
+                tokens.push({ text: p, cls: "ety-ext-suffix" });
+                tokens.push({ text: "-" + p, cls: "ety-ext-suffix" });
             });
         }
 
@@ -548,7 +584,13 @@ function updatePopupContent(word, data) {
             }
         });
 
-        if (uniqueTokens.length === 0) return text;
+        if (uniqueTokens.length === 0) {
+            // Restore (even if no tokens, we might have masked)
+            processed = processed.replace(/__PAREN_MASK_(\d+)__/g, (match, index) => {
+                return placeholders[parseInt(index)] || match;
+            });
+            return processed;
+        }
 
         // Single Pass Regex Construction
         // Map each token to its class for lookup
@@ -563,11 +605,18 @@ function updatePopupContent(word, data) {
         // The regex engine will try alternatives in order (which is sorted by length)
         const masterRegex = new RegExp(`(${patterns.join('|')})`, 'gi');
 
-        return processed.replace(masterRegex, (match) => {
+        processed = processed.replace(masterRegex, (match) => {
             const cls = tokenMap[match.toLowerCase()];
             if (!cls) return match;
             return `<span class="${cls}">${match}</span>`;
         });
+
+        // --- Restore Parentheses Content ---
+        processed = processed.replace(/__PAREN_MASK_(\d+)__/g, (match, index) => {
+            return placeholders[parseInt(index)] || match;
+        });
+
+        return processed;
     }
 
     // Process the description
@@ -581,19 +630,19 @@ function updatePopupContent(word, data) {
 
     let prefixLineTokens = [];
     prefixParts.forEach(p => {
-        prefixLineTokens.push({ text: p, cls: "ety-prefix" });
-        prefixLineTokens.push({ text: p + "-", cls: "ety-prefix" });
+        prefixLineTokens.push({ text: p, cls: "ety-ext-prefix" });
+        prefixLineTokens.push({ text: p + "-", cls: "ety-ext-prefix" });
     });
 
     let rootLineTokens = [];
     rootParts.forEach(p => {
-        rootLineTokens.push({ text: p, cls: "ety-root" });
+        rootLineTokens.push({ text: p, cls: "ety-ext-root" });
     });
 
     let suffixLineTokens = [];
     suffixParts.forEach(p => {
-        suffixLineTokens.push({ text: p, cls: "ety-suffix" });
-        suffixLineTokens.push({ text: "-" + p, cls: "ety-suffix" });
+        suffixLineTokens.push({ text: p, cls: "ety-ext-suffix" });
+        suffixLineTokens.push({ text: "-" + p, cls: "ety-ext-suffix" });
     });
 
     const finalPrefixLine = colorizeText(data.prefix, prefixLineTokens);
@@ -601,11 +650,11 @@ function updatePopupContent(word, data) {
     const finalSuffixLine = colorizeText(data.suffix, suffixLineTokens);
 
     currentPopup.innerHTML = `
-        <div class="ety-word">${coloredWordHMTL} <span style="font-weight:normal; font-size:14px; color:#666;">(${data.translation || '...'})</span></div>
-        <div class="ety-part"><span class="ety-label">前缀:</span><span class="ety-val">${finalPrefixLine}</span></div>
-        <div class="ety-part"><span class="ety-label">词根:</span><span class="ety-val">${finalRootLine}</span></div>
-        <div class="ety-part"><span class="ety-label">后缀:</span><span class="ety-val">${finalSuffixLine}</span></div>
-        <div class="ety-part" style="color:#555; font-size:13px; margin-top:10px; line-height:1.4; border-top:1px dashed #eee; padding-top:8px;">
+        <div class="ety-ext-word">${coloredWordHMTL} <span style="font-weight:normal; font-size:14px; color:#666;">(${data.translation || '...'})</span></div>
+        <div class="ety-ext-part"><span class="ety-ext-label">前缀:</span><span class="ety-ext-val">${finalPrefixLine}</span></div>
+        <div class="ety-ext-part"><span class="ety-ext-label">词根:</span><span class="ety-ext-val">${finalRootLine}</span></div>
+        <div class="ety-ext-part"><span class="ety-ext-label">后缀:</span><span class="ety-ext-val">${finalSuffixLine}</span></div>
+        <div class="ety-ext-part" style="color:#555; font-size:13px; margin-top:10px; line-height:1.4; border-top:1px dashed #eee; padding-top:8px;">
             ${finalDesc}
         </div>
     `;

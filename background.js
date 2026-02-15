@@ -21,13 +21,13 @@ async function handleWordAnalysis(word, sendResponse) {
         const cachedResult = await chrome.storage.local.get(cacheKey);
 
         if (cachedResult[cacheKey]) {
-            console.log(`[Cache Hit] 从缓存中读取了: ${word}`);
+            // console.log(`[Cache Hit] 从缓存中读取了: ${word}`);
             sendResponse({ success: true, data: cachedResult[cacheKey] });
             return;
         }
 
         // 2. 缓存没命中，请求 API
-        console.log(`[API Request] 正在请求 API: ${word}`);
+        // console.log(`[API Request] 正在请求 API: ${word}`);
         const apiData = await fetchEtymology(word);
 
         // 3. 存入缓存 (这里并没有设置过期时间，意味着除非你手动删，否则永久保存)
@@ -60,14 +60,12 @@ async function fetchEtymology(word) {
         }
     `;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }]
         })
-    }).catch(err => {
-        throw new Error("网络错误 (Network Request Failed): 请检查您的网络连接或 VPN (Please check your connection or VPN).");
     });
 
     const result = await response.json();
@@ -87,4 +85,32 @@ async function fetchEtymology(word) {
     rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
 
     return JSON.parse(rawText);
+}
+
+// Helper: Fetch with Timeout and Retry
+async function fetchWithRetry(url, options, retries = 3, backoff = 1000) {
+    try {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), 15000); // 15s timeout
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(id);
+
+        if (!response.ok) {
+            // If 5xx or 429, retry
+            if ((response.status >= 500 || response.status === 429) && retries > 0) {
+                console.warn(`Request failed with ${response.status}, retrying... (${retries} left)`);
+                await new Promise(r => setTimeout(r, backoff));
+                return fetchWithRetry(url, options, retries - 1, backoff * 2);
+            }
+            throw new Error(`HTTP Error: ${response.status}`);
+        }
+        return response;
+    } catch (error) {
+        if (retries > 0) {
+            console.warn(`Request failed: ${error.message}, retrying... (${retries} left)`);
+            await new Promise(r => setTimeout(r, backoff));
+            return fetchWithRetry(url, options, retries - 1, backoff * 2);
+        }
+        throw error;
+    }
 }
