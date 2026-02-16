@@ -8,35 +8,56 @@
 
 <body>
     <div class="container">
-        <h3>构词解析查询</h3>
-        <div class="search-box">
-            <input type="text" id="word-input" placeholder="输入单词 (例如: teleport)" autofocus>
-            <button id="search-btn">查询</button>
-        </div>
-
-        <div class="settings-row">
-            <span class="setting-label">链接上/按钮上</span>
-            <label class="switch">
-                <input type="checkbox" id="toggle-interactive">
-                <span class="slider round"></span>
-            </label>
-        </div>
-
-        <div id="result-area" class="result-hidden">
-            <div id="loading" style="display:none;">
-                <div class="spinner"></div>
-                <p>AI 正在分析中...</p>
+        <!-- Main Search View -->
+        <div id="main-view">
+            <div class="header-row">
+                <h3>构词解析查询</h3>
+                <button id="settings-btn" class="icon-btn" title="设置">⚙️</button>
+            </div>
+            <div class="search-box">
+                <input type="text" id="word-input" placeholder="输入单词 (例如: teleport)" autofocus>
+                <button id="search-btn">查询</button>
             </div>
 
-            <div id="content" style="display:none;">
-                <div class="word-title" id="res-word"></div>
-                <div class="part-row"><span class="label">前缀:</span> <span class="val" id="res-prefix"></span></div>
-                <div class="part-row"><span class="label">词根:</span> <span class="val" id="res-root"></span></div>
-                <div class="part-row"><span class="label">后缀:</span> <span class="val" id="res-suffix"></span></div>
-                <div class="desc" id="res-desc"></div>
+            <div id="result-area" class="result-hidden">
+                <div id="loading" style="display:none;">
+                    <div class="spinner"></div>
+                    <p>AI 正在分析中...</p>
+                </div>
+
+                <div id="content" style="display:none;">
+                    <div class="word-container">
+                        <div class="word-title" id="res-word"></div>
+                        <div class="word-translation" id="res-trans"></div>
+                    </div>
+                    <div class="part-row"><span class="label">前缀:</span> <span class="val" id="res-prefix"></span></div>
+                    <div class="part-row"><span class="label">词根:</span> <span class="val" id="res-root"></span></div>
+                    <div class="part-row"><span class="label">后缀:</span> <span class="val" id="res-suffix"></span></div>
+                    <div class="desc" id="res-desc"></div>
+                </div>
+
+                <div id="error" style="display:none; color: red;"></div>
             </div>
 
-            <div id="error" style="display:none; color: red;"></div>
+        </div> <!-- End of main-view -->
+
+        <!-- Settings View -->
+        <div id="settings-view" style="display: none;">
+            <div class="settings-header">
+                <button id="back-btn" class="icon-btn">⬅️</button>
+                <h3>设置</h3>
+            </div>
+
+            <div class="settings-content">
+                <div class="settings-row">
+                    <span class="setting-label">在链接/按钮上显示图标</span>
+                    <label class="switch">
+                        <input type="checkbox" id="toggle-interactive">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="setting-desc">开启后，鼠标悬停在链接或按钮上时也会显示查询图标。</div>
+            </div>
         </div>
     </div>
     <script src="popup.js"></script>

@@ -1,17 +1,73 @@
 body {
     width: 320px;
-    /* 弹窗的固定宽度 */
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     margin: 0;
     padding: 15px;
     background-color: #f9f9f9;
 }
 
+/* html { } - removed empty rule */
+
+/* Container: Reset to simpler layout */
+.container {
+    background-color: transparent;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    border-radius: 0;
+}
+
+/* Custom Scrollbar for Chrome */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #bbb;
+}
+
 h3 {
-    margin: 0 0 15px 0;
+    margin: 0;
     font-size: 16px;
     color: #333;
+    flex-grow: 1;
     text-align: center;
+}
+
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    position: relative;
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px;
+    border-radius: 50%;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+}
+
+.icon-btn:hover {
+    background-color: #eee;
 }
 
 .search-box {
@@ -22,10 +78,12 @@ h3 {
 
 input {
     flex: 1;
-    padding: 8px;
+    padding: 8px 12px;
     border: 1px solid #ddd;
-    border-radius: 4px;
+    border-radius: 20px;
+    /* Rounded input */
     outline: none;
+    transition: border-color 0.2s;
 }
 
 input:focus {
@@ -33,30 +91,57 @@ input:focus {
 }
 
 button {
-    padding: 8px 15px;
+    padding: 8px 18px;
     background-color: #4CAF50;
     color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: 20px;
+    /* Rounded button */
     cursor: pointer;
+    transition: background-color 0.2s;
 }
 
 button:hover {
     background-color: #45a049;
 }
 
-/* 结果区域样式 */
+/* Result Area Card */
+#result-area {
+    background-color: #fff;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border: 1px solid #eee;
+    margin-top: 10px;
+}
+
 .result-hidden {
     display: none;
+}
+
+.word-container {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
 }
 
 .word-title {
     font-size: 18px;
     font-weight: bold;
     color: #2c3e50;
-    border-bottom: 2px solid #eee;
-    padding-bottom: 8px;
-    margin-bottom: 10px;
+    margin: 0;
+    border: none;
+    padding: 0;
+}
+
+.word-translation {
+    font-size: 14px;
+    color: #666;
+    font-weight: normal;
 }
 
 .part-row {
@@ -111,15 +196,45 @@ button:hover {
     color: #666;
 }
 
+/* Settings View */
+#settings-view {
+    display: none;
+    background: #f9f9f9;
+    padding: 0;
+    /* padding controlled by body? */
+    /* No absolute positioning to let body toggle height naturally */
+}
+
+.settings-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.settings-header h3 {
+    text-align: center;
+    margin-right: 32px;
+    /* Balance the back button width */
+}
+
+.settings-content {
+    padding: 0 5px;
+}
+
+.setting-desc {
+    font-size: 12px;
+    color: #888;
+    margin-top: 5px;
+    line-height: 1.4;
+}
+
 /* Settings Row */
 .settings-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 10px 0;
-    margin-bottom: 10px;
-    border-top: 1px solid #eee;
-    margin-top: 10px;
+    border-bottom: 1px dashed #eee;
 }
 
 .setting-label {
@@ -189,3 +304,24 @@ input:checked+.slider:before {
 .slider.round:before {
     border-radius: 50%;
 }
+
+/* Coloring Classes (Copied from style.css) */
+.ety-ext-prefix {
+    color: #4483ea;
+    /* Blue */
+    font-weight: bold;
+}
+
+.ety-ext-root {
+    color: #f2bb06;
+    /* Yellow */
+    font-weight: bold;
+}
+
+.ety-ext-suffix {
+    color: #e54430;
+    /* Red */
+    font-weight: bold;
+}
+
+/* Removed empty .container rule (handled above) */
