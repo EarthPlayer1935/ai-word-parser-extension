@@ -1,3 +1,24 @@
+# General
 config.js
 .DS_Store
-*.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables
+.env
+
+# Logs
+*.log
+
+# Project specific
+# Note: Removed *.py exclusion to allow backend source code
